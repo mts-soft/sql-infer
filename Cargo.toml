@@ -1,0 +1,28 @@
+[package]
+name = "sql-py"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+async-std = "1.13.0"
+chrono = { version = "0.4.39", features = ["serde"] }
+clap = { version = "4.5.23", features = ["derive"] }
+ctrlc = "3.4.5"
+regex = "1.11.1"
+
+sqlx = { version = "0.8.2", features = [
+    "postgres",
+    "runtime-async-std",
+    "tls-native-tls",
+    "time",
+] }
+
+[profile.release]
+strip = true
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+
+
+[profile.dev]
+opt-level = 3

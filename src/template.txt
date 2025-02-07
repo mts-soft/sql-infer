@@ -1,0 +1,28 @@
+from __future__ import annotations
+
+from collections.abc import Generator
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+from sqlalchemy import text
+
+if TYPE_CHECKING:
+    from datetime import datetime
+    from decimal import Decimal
+
+    from sqlalchemy import Connection
+
+@dataclass
+class DbOutput[T]:
+    inner: Generator[T]
+
+    def first(self) -> T | None:
+        """Get the first result if available."""
+        try:
+            return self.inner.__next__()
+        except BaseException:
+            return None
+
+    def all(self) -> Generator[T]:
+        yield from self.inner
+
