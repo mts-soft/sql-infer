@@ -40,6 +40,7 @@ fn sql_to_py(sql_type: &str) -> Result<&'static str, Box<dyn Error>> {
         "NUMERIC" => "Decimal",
         "TIMESTAMP" | "TIMESTAMPTZ" | "DATE" | "TIME" | "TIMETZ" => "datetime",
         "CHAR" | "VARCHAR" | "TEXT" | "NAME" | "CITEXT" => "str",
+        "BIT" | "VARBIT" => "str",
         "JSON" | "JSONB" => todo!(),
         "DOUBLE PRECISION" | "FLOAT4" | "FLOAT8" | "REAL" => "float",
         _ => Err(CheckerError::UnrecognizedType {
@@ -95,7 +96,7 @@ pub fn query_to_sql_alchemy(
     for query_value in &query_types.input {
         let param_name = &query_value.name;
         params.push(format!(
-            "{param_name}: {}",
+            "{param_name}: {} | None",
             sql_to_py(&query_value.type_name)?
         ));
         binds.push(format!("\"{param_name}\": {param_name}"));
