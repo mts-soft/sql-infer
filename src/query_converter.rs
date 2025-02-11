@@ -1,38 +1,10 @@
 use regex::Regex;
 use std::error::Error;
-use std::fmt::Display;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedQuery {
     pub postgres_query: String,
     pub params: Vec<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum QueryType {
-    Postgres,
-    Psycopg,
-    SqlPy,
-}
-
-impl QueryType {
-    pub fn prepared(self, query: &str) -> Result<PreparedQuery, Box<dyn Error>> {
-        match self {
-            QueryType::Postgres => prepare_postgres(query),
-            QueryType::Psycopg => prepare_psycopg(query),
-            QueryType::SqlPy => todo!(),
-        }
-    }
-}
-
-impl Display for QueryType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            QueryType::Postgres => write!(f, "postgres"),
-            QueryType::Psycopg => write!(f, "psycopg"),
-            QueryType::SqlPy => write!(f, "sql-py"),
-        }
-    }
 }
 
 fn split_query(mut query: &str) -> Vec<&str> {
@@ -59,27 +31,7 @@ fn split_query(mut query: &str) -> Vec<&str> {
     split_query
 }
 
-fn prepare_postgres(query: &str) -> Result<PreparedQuery, Box<dyn Error>> {
-    let mut params = Vec::new();
-    let placeholder_pattern = Regex::new(r"\$[1-9][0-9]*")?;
-    let split_query = split_query(query);
-    let simple_query = split_query.into_iter().step_by(2).collect::<String>();
-    for placeholder_match in placeholder_pattern.captures_iter(&simple_query) {
-        let placeholder = placeholder_match
-            .get(0)
-            .expect("This is a bug in the regex crate as per documentation.")
-            .as_str();
-        placeholder[1..].parse::<i32>()?;
-        params.push(placeholder[1..].to_owned());
-    }
-    // TODO: Check for every N > 1, there is N - 1
-    Ok(PreparedQuery {
-        postgres_query: query.to_string(),
-        params,
-    })
-}
-
-fn prepare_psycopg(query: &str) -> Result<PreparedQuery, Box<dyn Error>> {
+pub fn prepare_dbapi2(query: &str) -> Result<PreparedQuery, Box<dyn Error>> {
     let mut params = Vec::new();
     let placeholder_pattern = Regex::new(r":([a-z]|[A-Z]|_)([a-z]|[A-Z]|_|[0-9])*")?;
     let split_query = split_query(query);

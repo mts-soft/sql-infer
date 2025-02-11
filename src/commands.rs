@@ -5,7 +5,6 @@ use std::{
 };
 
 use async_std::task;
-use clap;
 
 use crate::check_query::{check_query, query_to_sql_alchemy};
 #[derive(clap::Args)]

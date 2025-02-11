@@ -3,22 +3,17 @@ use std::{error::Error, fmt};
 use sqlx::{postgres::PgPoolOptions, Executor};
 use sqlx::{Column, Either, Statement, TypeInfo};
 
-use crate::query_converter::QueryType;
+use crate::query_converter::prepare_dbapi2;
+use crate::utils::to_pascal;
 
 #[derive(Debug, Clone)]
 pub enum CheckerError {
-    StatementAccessFailed,
-    ParameterTypesNotFound,
-    ReturnTypesNotFound,
     UnrecognizedType { sql_type: String },
 }
 
 impl fmt::Display for CheckerError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            CheckerError::StatementAccessFailed => write!(f, "Statement access failed"),
-            CheckerError::ParameterTypesNotFound => write!(f, "Parameter types not found"),
-            CheckerError::ReturnTypesNotFound => write!(f, "Return types not found"),
             CheckerError::UnrecognizedType { sql_type } => {
                 write!(f, "Unrecognized SQL Type {}", sql_type)
             }
@@ -55,7 +50,7 @@ fn sql_to_py(sql_type: &str) -> Result<&'static str, Box<dyn Error>> {
 }
 
 pub async fn check_query(db_url: &str, query: &str) -> Result<QueryTypes, Box<dyn Error>> {
-    let prepared_query = QueryType::Psycopg.prepared(query)?;
+    let prepared_query = prepare_dbapi2(query)?;
     let query = &prepared_query.postgres_query;
     let pool = PgPoolOptions::new()
         .max_connections(1)
@@ -114,7 +109,7 @@ pub fn query_to_sql_alchemy(
             sql_to_py(&query_value.type_name)?
         ));
     }
-    let class_name = format!("{query_name}Output");
+    let class_name = to_pascal(&format!("{query_name}_output"));
     let out_types = match outs.is_empty() {
         true => "None",
         false => &format!("DbOutput[{class_name}]"),

@@ -2,6 +2,7 @@
 mod check_query;
 mod commands;
 mod query_converter;
+mod utils;
 
 use std::{
     error::Error,
