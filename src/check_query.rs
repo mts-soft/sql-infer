@@ -5,7 +5,21 @@ use tracing::warn;
 
 use crate::parser::{find_source, to_ast};
 use crate::query_converter::prepare_dbapi2;
-use crate::utils::to_pascal;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueryItem {
+    pub name: String,
+    pub sql_type: SqlType,
+    pub nullable: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueryFn {
+    pub query: String,
+    pub inputs: Vec<QueryItem>,
+    pub outputs: Vec<QueryItem>,
+}
 
 #[derive(Debug, Clone)]
 pub enum CheckerError {
@@ -24,7 +38,7 @@ impl fmt::Display for CheckerError {
 
 impl Error for CheckerError {}
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Nullability {
     True,
     False,
@@ -44,24 +58,65 @@ pub struct QueryTypes {
     pub output: Box<[QueryValue]>,
 }
 
-fn sql_to_py(sql_type: &str) -> Result<&'static str, Box<dyn Error>> {
-    let py_type = match sql_type {
-        "BOOL" => "bool",
-        "INT2" | "INT4" | "INT" | "INT8" | "SERIAL" | "SMALLINT" | "SMALLSERIAL" => "int",
-        "NUMERIC" => "Decimal",
-        "TIMESTAMP" | "TIMESTAMPTZ" | "DATE" | "TIME" | "TIMETZ" => "datetime",
-        "CHAR" | "VARCHAR" | "TEXT" | "NAME" | "CITEXT" => "str",
-        "BIT" | "VARBIT" => "str",
-        "JSON" | "JSONB" => todo!(),
-        "DOUBLE PRECISION" | "FLOAT4" | "FLOAT8" | "REAL" => "float",
-        _ => Err(CheckerError::UnrecognizedType {
-            sql_type: sql_type.to_string(),
-        })?,
-    };
-    Ok(py_type)
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum SqlType {
+    Bool,
+    // Integer Types
+    Int2,
+    Int4,
+    Int8,
+    // Auto Increment Types
+    SmallSerial,
+    Serial,
+    BigSerial,
+    // Decimal types
+    Decimal,
+    // Time types
+    Timestamp { tz: bool },
+    Date,
+    Time { tz: bool },
+    // Text types
+    Char { length: Option<u32> },
+    VarChar { length: Option<u32> },
+    Text,
+    // Json types
+    Json,
+    Jsonb,
+    // Float types
+    Float4,
+    Float8,
 }
 
-pub async fn get_col_nullability(
+impl SqlType {
+    fn from_str(sql_type: &str) -> Result<Self, Box<dyn Error>> {
+        Ok(match sql_type {
+            "BOOL" => Self::Bool,
+            "SMALLINT" | "INT2" => Self::Int2,
+            "INT" | "INT4" => Self::Int4,
+            "INT8" => Self::Int8,
+            "SMALLSERIAL" => Self::SmallSerial,
+            "SERIAL" => Self::Serial,
+            "BIGSERIAL" => Self::BigSerial,
+            "NUMERIC" => Self::Decimal,
+            "TIMESTAMP" => Self::Timestamp { tz: false },
+            "TIMESTAMPTZ" => Self::Timestamp { tz: true },
+            "TIME" | "TIMETZ" => Self::Time { tz: true },
+            "DATE" => Self::Date,
+            "CHAR" => Self::Char { length: None },
+            "VARCHAR" => Self::VarChar { length: None },
+            "TEXT" => Self::Text,
+            "JSON" => Self::Json,
+            "JSONB" => Self::Json,
+            "DOUBLE PRECISION" | "FLOAT8" => Self::Float8,
+            "REAL" | "FLOAT4" => Self::Float4,
+            _ => Err(CheckerError::UnrecognizedType {
+                sql_type: sql_type.to_string(),
+            })?,
+        })
+    }
+}
+
+pub async fn get_column_nullability(
     pool: &Pool<Postgres>,
     table_name: &str,
     column_name: &str,
@@ -101,7 +156,7 @@ pub async fn infer_nullability(
                     output.nullable = Nullability::True;
                     continue;
                 }
-                let nullability = get_col_nullability(pool, &table.name, &output.name).await?;
+                let nullability = get_column_nullability(pool, &table.name, &output.name).await?;
                 output.nullable = nullability;
             }
             Ok(None) => errors.push("No Sources Found".into()),
@@ -161,58 +216,26 @@ pub async fn check_query(
     })
 }
 
-pub fn query_to_sql_alchemy(
-    query_name: &str,
-    query: &str,
-    query_types: &QueryTypes,
-) -> Result<String, Box<dyn Error>> {
-    let mut params = vec!["conn: Connection".to_owned()];
-    let mut binds = vec![];
-
-    for query_value in &query_types.input {
-        let param_name = &query_value.name;
-        params.push(format!(
-            "{param_name}: {} | None",
-            sql_to_py(&query_value.type_name)?
-        ));
-        binds.push(format!("\"{param_name}\": {param_name}"));
+pub fn query_to_json(query: &str, query_types: &QueryTypes) -> Result<QueryFn, Box<dyn Error>> {
+    let mut input_types = Vec::with_capacity(query_types.input.len());
+    for input in &query_types.input {
+        input_types.push(QueryItem {
+            name: input.name.clone(),
+            sql_type: SqlType::from_str(&input.type_name)?,
+            nullable: input.nullable != Nullability::False,
+        });
     }
-    let mut outs = vec![];
-
-    for query_value in &query_types.output {
-        let py_type = sql_to_py(&query_value.type_name)?;
-        let output_type = match query_value.nullable {
-            Nullability::False => py_type,
-            Nullability::Unknown | Nullability::True => &format!("{} | None", py_type),
-        };
-        outs.push(format!("    {}: {}", query_value.name, output_type,));
+    let mut output_types = Vec::with_capacity(query_types.output.len());
+    for output in &query_types.output {
+        output_types.push(QueryItem {
+            name: output.name.clone(),
+            sql_type: SqlType::from_str(&output.type_name)?,
+            nullable: output.nullable != Nullability::False,
+        });
     }
-    let class_name = to_pascal(&format!("{query_name}_output"));
-    let out_types = match outs.is_empty() {
-        true => "None",
-        false => &format!("DbOutput[{class_name}]"),
-    };
-    let return_type = match outs.is_empty() {
-        true => "",
-        false => &format!("@dataclass\nclass {class_name}:\n{}\n", outs.join("\n")),
-    };
-
-    let in_types = params.join(", ");
-    let function_signature = format!("def {query_name}({in_types}) -> {out_types}:");
-
-    let bind_text = match binds.len() {
-        0 => "".to_string(),
-        _ => format!("{{{}}}", binds.join(", ")),
-    };
-
-    let mut function_content =
-        format!("    result = conn.execute(text(\"\"\"{query}\"\"\"), {bind_text})\n");
-    if !outs.is_empty() {
-        function_content.push_str(&format!(
-            "    return DbOutput({class_name}(*row) for row in result) # type: ignore\n"
-        ));
-    }
-    Ok(format!(
-        "{return_type}\n\n{function_signature}\n{function_content}"
-    ))
+    Ok(QueryFn {
+        query: query.to_string(),
+        inputs: input_types,
+        outputs: output_types,
+    })
 }
