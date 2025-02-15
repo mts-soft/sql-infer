@@ -5,6 +5,16 @@ use std::{
 };
 
 use async_std::task;
+use tracing::{error, info, Level};
+use tracing_subscriber::FmtSubscriber;
+
+fn init_debug() -> Result<(), Box<dyn Error>> {
+    let subscriber = FmtSubscriber::builder()
+        .with_max_level(Level::INFO)
+        .finish();
+    tracing::subscriber::set_global_default(subscriber)?;
+    Ok(())
+}
 
 use crate::check_query::{check_query, query_to_sql_alchemy};
 #[derive(clap::Args)]
@@ -16,16 +26,25 @@ pub struct CheckQueryArgs {
     sql: std::path::PathBuf,
     #[arg(long, help = "Will output to the given file if provided.")]
     out: Option<std::path::PathBuf>,
+    #[arg(
+        long,
+        help = "Enable the experimental parser to more accurately detect types"
+    )]
+    experimental_parser: bool,
+    #[arg(long, help = "Show debug information")]
+    debug: bool,
 }
 
 impl CheckQueryArgs {
     pub fn check_query(self) -> Result<(), Box<dyn Error>> {
+        if self.debug {
+            init_debug()?;
+        }
         let file = OpenOptions::new().read(true).open(self.sql)?;
         let mut reader = BufReader::new(file);
         let mut query = String::new();
         reader.read_to_string(&mut query)?;
-
-        let query_types = task::block_on(check_query(&self.db, &query))?;
+        let query_types = task::block_on(check_query(&self.db, &query, self.experimental_parser))?;
         eprintln!("Check successful!");
         eprintln!("Input types: ");
         for input in &query_types.input {
@@ -48,10 +67,20 @@ pub struct CreateQueryArgs {
     sql_dir: std::path::PathBuf,
     #[arg(long, help = "Will output to the given file if provided.")]
     out: Option<std::path::PathBuf>,
+    #[arg(
+        long,
+        help = "Enable the experimental parser to more accurately detect types"
+    )]
+    experimental_parser: bool,
+    #[arg(long, help = "Show debug information")]
+    debug: bool,
 }
 
 impl CreateQueryArgs {
     pub fn create_query(self) -> Result<(), Box<dyn Error>> {
+        if self.debug {
+            init_debug()?;
+        }
         let directory = fs::read_dir(self.sql_dir)?;
         let mut query = String::new();
         let mut code = include_str!("./template.txt").to_string();
@@ -59,7 +88,7 @@ impl CreateQueryArgs {
             query.clear();
             let file_path = file?.path();
             let Some(stem) = file_path.file_stem() else {
-                eprintln!("Skipping {file_path:?} as the filename is not valid.");
+                info!("Skipping {file_path:?} as the filename is not valid.");
                 continue;
             };
             let file_name = stem.to_string_lossy().to_string();
@@ -67,8 +96,17 @@ impl CreateQueryArgs {
             let file = OpenOptions::new().read(true).open(file_path)?;
             let mut reader = BufReader::new(file);
             reader.read_to_string(&mut query)?;
-            let query_types = task::block_on(check_query(&self.db_url, &query))?;
-            eprintln!("Check for {file_name} successful!");
+
+            let check_result =
+                task::block_on(check_query(&self.db_url, &query, self.experimental_parser));
+            let query_types = match check_result {
+                Ok(query_types) => query_types,
+                Err(err) => {
+                    error!("Check for {file_name} failed\n {err}");
+                    continue;
+                }
+            };
+            info!("Check for {file_name} successful!");
             code.push_str(&query_to_sql_alchemy(&file_name, &query, &query_types)?);
             code.push('\n');
         }
