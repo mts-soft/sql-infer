@@ -52,11 +52,11 @@ impl CheckQueryArgs {
         eprintln!("Check successful!");
         eprintln!("Input types: ");
         for input in &query_types.input {
-            eprintln!("{}: {}", input.name, input.type_name)
+            eprintln!("{}: {}", input.name, input.sql_type)
         }
         eprintln!("Output types: ");
         for output in &query_types.output {
-            eprintln!("{}: {}", output.name, output.type_name)
+            eprintln!("{}: {}", output.name, output.sql_type)
         }
         Ok(())
     }
