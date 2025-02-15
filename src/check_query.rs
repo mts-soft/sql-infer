@@ -1,5 +1,6 @@
 use sqlx::{postgres::PgPoolOptions, Executor};
 use sqlx::{query, Column, Either, Pool, Postgres, Statement, TypeInfo};
+use std::fmt::Display;
 use std::{error::Error, fmt};
 use tracing::warn;
 
@@ -11,7 +12,7 @@ use serde::{Deserialize, Serialize};
 pub struct QueryItem {
     pub name: String,
     pub sql_type: SqlType,
-    pub nullable: bool,
+    pub nullable: Nullability,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,7 +39,7 @@ impl fmt::Display for CheckerError {
 
 impl Error for CheckerError {}
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Nullability {
     True,
     False,
@@ -46,16 +47,9 @@ pub enum Nullability {
 }
 
 #[derive(Debug, Clone)]
-pub struct QueryValue {
-    pub name: String,
-    pub type_name: String,
-    pub nullable: Nullability,
-}
-
-#[derive(Debug, Clone)]
 pub struct QueryTypes {
-    pub input: Box<[QueryValue]>,
-    pub output: Box<[QueryValue]>,
+    pub input: Box<[QueryItem]>,
+    pub output: Box<[QueryItem]>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -70,14 +64,26 @@ pub enum SqlType {
     Serial,
     BigSerial,
     // Decimal types
-    Decimal,
+    Decimal {
+        precision: Option<u32>,
+        precision_radix: Option<u32>,
+    },
     // Time types
-    Timestamp { tz: bool },
+    Timestamp {
+        tz: bool,
+    },
     Date,
-    Time { tz: bool },
+    Time {
+        tz: bool,
+    },
+    Interval,
     // Text types
-    Char { length: Option<u32> },
-    VarChar { length: Option<u32> },
+    Char {
+        length: Option<u32>,
+    },
+    VarChar {
+        length: Option<u32>,
+    },
     Text,
     // Json types
     Json,
@@ -85,6 +91,77 @@ pub enum SqlType {
     // Float types
     Float4,
     Float8,
+}
+
+impl Display for SqlType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SqlType::Bool => write!(f, "boolean"),
+            SqlType::Int2 => write!(f, "i16"),
+            SqlType::Int4 => write!(f, "i32"),
+            SqlType::Int8 => write!(f, "i64"),
+            SqlType::SmallSerial => write!(f, "i16"),
+            SqlType::Serial => write!(f, "i32"),
+            SqlType::BigSerial => write!(f, "i64"),
+            SqlType::Decimal {
+                precision,
+                precision_radix,
+            } => {
+                let precision = if let Some(precision) = precision {
+                    &format!("{precision}")
+                } else {
+                    "???"
+                };
+                let precision_radix = if let Some(precision_radix) = precision_radix {
+                    &format!("{precision_radix}")
+                } else {
+                    "???"
+                };
+                write!(f, "decimal({}, {})", precision, precision_radix)
+            }
+            SqlType::Timestamp { tz } => write!(
+                f,
+                "timestamp {}",
+                if *tz {
+                    "with timezone"
+                } else {
+                    "without timezone"
+                }
+            ),
+            SqlType::Date => write!(f, "date"),
+            SqlType::Time { tz } => write!(
+                f,
+                "time {}",
+                if *tz {
+                    "with timezone"
+                } else {
+                    "without timezone"
+                }
+            ),
+            SqlType::Interval => write!(f, "interval"),
+            SqlType::Char { length } => {
+                let length = if let Some(length) = length {
+                    &format!("{length}")
+                } else {
+                    "???"
+                };
+                write!(f, "char({length})",)
+            }
+            SqlType::VarChar { length } => {
+                let length = if let Some(length) = length {
+                    &format!("{length}")
+                } else {
+                    "???"
+                };
+                write!(f, "char({length})",)
+            }
+            SqlType::Text => write!(f, "text"),
+            SqlType::Json => write!(f, "json"),
+            SqlType::Jsonb => write!(f, "jsonb"),
+            SqlType::Float4 => write!(f, "f32"),
+            SqlType::Float8 => write!(f, "f64"),
+        }
+    }
 }
 
 impl SqlType {
@@ -97,7 +174,10 @@ impl SqlType {
             "SMALLSERIAL" => Self::SmallSerial,
             "SERIAL" => Self::Serial,
             "BIGSERIAL" => Self::BigSerial,
-            "NUMERIC" => Self::Decimal,
+            "NUMERIC" => Self::Decimal {
+                precision: None,
+                precision_radix: None,
+            },
             "TIMESTAMP" => Self::Timestamp { tz: false },
             "TIMESTAMPTZ" => Self::Timestamp { tz: true },
             "TIME" | "TIMETZ" => Self::Time { tz: true },
@@ -109,6 +189,7 @@ impl SqlType {
             "JSONB" => Self::Json,
             "DOUBLE PRECISION" | "FLOAT8" => Self::Float8,
             "REAL" | "FLOAT4" => Self::Float4,
+            "INTERVAL" => Self::Interval,
             _ => Err(CheckerError::UnrecognizedType {
                 sql_type: sql_type.to_string(),
             })?,
@@ -116,20 +197,38 @@ impl SqlType {
     }
 }
 
-pub async fn get_column_nullability(
+pub async fn update_with_info(
     pool: &Pool<Postgres>,
     table_name: &str,
-    column_name: &str,
+    item: &mut QueryItem,
 ) -> Result<Nullability, Box<dyn Error>> {
     let query = query!(
-        "select is_nullable from INFORMATION_SCHEMA.COLUMNS where table_name = $1 and column_name = $2;",
+        "select is_nullable, character_maximum_length, numeric_precision, numeric_precision_radix from INFORMATION_SCHEMA.COLUMNS where table_name = $1 and column_name = $2;",
         table_name,
-        column_name
+        item.name,
     );
     let res = query.fetch_optional(pool).await?;
     let Some(column) = res else {
         return Ok(Nullability::Unknown);
     };
+
+    if let SqlType::Char { length } | SqlType::VarChar { length } = &mut item.sql_type {
+        if let Some(character_maximum_length) = column.character_maximum_length {
+            *length = Some(character_maximum_length as u32)
+        }
+    }
+    if let SqlType::Decimal {
+        precision,
+        precision_radix,
+    } = &mut item.sql_type
+    {
+        if let Some((numeric_precision, numeric_precision_radix)) =
+            column.numeric_precision.zip(column.numeric_precision_radix)
+        {
+            *precision = Some(numeric_precision as u32);
+            *precision_radix = Some(numeric_precision_radix as u32);
+        };
+    }
     Ok(column
         .is_nullable
         .map_or(Nullability::Unknown, |nullable| match nullable == "NO" {
@@ -141,7 +240,7 @@ pub async fn get_column_nullability(
 pub async fn infer_nullability(
     pool: &Pool<Postgres>,
     query: &str,
-    output_types: &mut [QueryValue],
+    output_types: &mut [QueryItem],
 ) -> Result<(), Box<dyn Error>> {
     let ast = to_ast(query)?;
     let mut errors: Vec<String> = vec![];
@@ -156,7 +255,7 @@ pub async fn infer_nullability(
                     output.nullable = Nullability::True;
                     continue;
                 }
-                let nullability = get_column_nullability(pool, &table.name, &output.name).await?;
+                let nullability = update_with_info(pool, &table.name, output).await?;
                 output.nullable = nullability;
             }
             Ok(None) => errors.push("No Sources Found".into()),
@@ -182,26 +281,25 @@ pub async fn check_query(
         .connect(db_url)
         .await?;
     let prepared = pool.prepare(query).await?;
-    let mut result_types: Box<[QueryValue]> = prepared
-        .columns()
-        .iter()
-        .map(|column| QueryValue {
+    let mut result_types = Vec::with_capacity(prepared.columns().len());
+    for column in prepared.columns() {
+        result_types.push(QueryItem {
             name: column.name().to_string(),
-            type_name: column.type_info().name().to_owned(),
+            sql_type: SqlType::from_str(column.type_info().name())?,
             nullable: Nullability::Unknown,
-        })
-        .collect();
-    let parameters = match prepared.parameters() {
-        Some(Either::Left(parameters)) => parameters
-            .iter()
-            .map(TypeInfo::name)
-            .zip(prepared_query.params.into_iter())
-            .map(|(type_name, name)| QueryValue {
-                name,
-                type_name: type_name.to_owned(),
-                nullable: Nullability::Unknown,
-            })
-            .collect(),
+        });
+    }
+    let mut input_types = vec![];
+    match prepared.parameters() {
+        Some(Either::Left(parameters)) => {
+            for (param, name) in parameters.iter().zip(prepared_query.params.iter()) {
+                input_types.push(QueryItem {
+                    name: name.to_string(),
+                    sql_type: SqlType::from_str(param.name())?,
+                    nullable: Nullability::Unknown,
+                });
+            }
+        }
         Some(Either::Right(_)) => panic!("Postgres connection should never lead here"),
         None => panic!("Parameter types were not provided."),
     };
@@ -211,8 +309,8 @@ pub async fn check_query(
     pool.close().await;
 
     Ok(QueryTypes {
-        input: parameters,
-        output: result_types,
+        input: input_types.into_boxed_slice(),
+        output: result_types.into_boxed_slice(),
     })
 }
 
@@ -221,16 +319,16 @@ pub fn query_to_json(query: &str, query_types: &QueryTypes) -> Result<QueryFn, B
     for input in &query_types.input {
         input_types.push(QueryItem {
             name: input.name.clone(),
-            sql_type: SqlType::from_str(&input.type_name)?,
-            nullable: input.nullable != Nullability::False,
+            sql_type: input.sql_type,
+            nullable: input.nullable,
         });
     }
     let mut output_types = Vec::with_capacity(query_types.output.len());
     for output in &query_types.output {
         output_types.push(QueryItem {
             name: output.name.clone(),
-            sql_type: SqlType::from_str(&output.type_name)?,
-            nullable: output.nullable != Nullability::False,
+            sql_type: output.sql_type,
+            nullable: output.nullable,
         });
     }
     Ok(QueryFn {

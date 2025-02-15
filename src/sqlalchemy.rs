@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use crate::check_query::{QueryFn, QueryItem, SqlType};
+use crate::check_query::{Nullability, QueryFn, QueryItem, SqlType};
 
 pub fn to_pascal(mixed_case_name: &str) -> String {
     let mut words = vec![];
@@ -33,7 +33,7 @@ pub fn to_py_type(item: &QueryItem) -> String {
         | SqlType::SmallSerial
         | SqlType::Serial
         | SqlType::BigSerial => "int",
-        SqlType::Decimal => "Decimal",
+        SqlType::Decimal { .. } => "Decimal",
         SqlType::Timestamp { .. } => "datetime",
         SqlType::Date => "date",
         SqlType::Time { .. } => "time",
@@ -43,11 +43,12 @@ pub fn to_py_type(item: &QueryItem) -> String {
         | SqlType::Json
         | SqlType::Jsonb => "str",
         SqlType::Float4 | SqlType::Float8 => "float",
+        SqlType::Interval => "timedelta",
     }
     .to_string();
     match item.nullable {
-        true => format!("{} | None", py_type),
-        false => py_type,
+        Nullability::True | Nullability::Unknown => format!("{} | None", py_type),
+        Nullability::False => py_type,
     }
 }
 
