@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import text
 
 if TYPE_CHECKING:
-    from datetime import datetime
+    from datetime import datetime, timedelta, date
     from decimal import Decimal
 
     from sqlalchemy import Connection
