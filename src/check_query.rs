@@ -1,8 +1,9 @@
-use std::{error::Error, fmt};
-
 use sqlx::{postgres::PgPoolOptions, Executor};
-use sqlx::{Column, Either, Statement, TypeInfo};
+use sqlx::{query, Column, Either, Pool, Postgres, Statement, TypeInfo};
+use std::{error::Error, fmt};
+use tracing::warn;
 
+use crate::parser::{find_source, to_ast};
 use crate::query_converter::prepare_dbapi2;
 use crate::utils::to_pascal;
 
@@ -23,11 +24,21 @@ impl fmt::Display for CheckerError {
 
 impl Error for CheckerError {}
 
+#[derive(Debug, Copy, Clone)]
+pub enum Nullability {
+    True,
+    False,
+    Unknown,
+}
+
+#[derive(Debug, Clone)]
 pub struct QueryValue {
     pub name: String,
     pub type_name: String,
+    pub nullable: Nullability,
 }
 
+#[derive(Debug, Clone)]
 pub struct QueryTypes {
     pub input: Box<[QueryValue]>,
     pub output: Box<[QueryValue]>,
@@ -50,7 +61,65 @@ fn sql_to_py(sql_type: &str) -> Result<&'static str, Box<dyn Error>> {
     Ok(py_type)
 }
 
-pub async fn check_query(db_url: &str, query: &str) -> Result<QueryTypes, Box<dyn Error>> {
+pub async fn get_col_nullability(
+    pool: &Pool<Postgres>,
+    table_name: &str,
+    column_name: &str,
+) -> Result<Nullability, Box<dyn Error>> {
+    let query = query!(
+        "select is_nullable from INFORMATION_SCHEMA.COLUMNS where table_name = $1 and column_name = $2;",
+        table_name,
+        column_name
+    );
+    let res = query.fetch_optional(pool).await?;
+    let Some(column) = res else {
+        return Ok(Nullability::Unknown);
+    };
+    Ok(column
+        .is_nullable
+        .map_or(Nullability::Unknown, |nullable| match nullable == "NO" {
+            true => Nullability::False,
+            false => Nullability::True,
+        }))
+}
+
+pub async fn infer_nullability(
+    pool: &Pool<Postgres>,
+    query: &str,
+    output_types: &mut [QueryValue],
+) -> Result<(), Box<dyn Error>> {
+    let ast = to_ast(query)?;
+    let mut errors: Vec<String> = vec![];
+    for output in output_types.iter_mut() {
+        match find_source(&ast, &output.name) {
+            Ok(Some(source)) => {
+                let Some(table) = source.table else {
+                    warn!("No source table found for column {}", &output.name);
+                    continue;
+                };
+                if table.nullable {
+                    output.nullable = Nullability::True;
+                    continue;
+                }
+                let nullability = get_col_nullability(pool, &table.name, &output.name).await?;
+                output.nullable = nullability;
+            }
+            Ok(None) => errors.push("No Sources Found".into()),
+            Err(err) => errors.push(err.to_string()),
+        }
+    }
+    for error in errors {
+        warn!("{error}");
+    }
+
+    Ok(())
+}
+
+pub async fn check_query(
+    db_url: &str,
+    query: &str,
+    experimental_parser: bool,
+) -> Result<QueryTypes, Box<dyn Error>> {
     let prepared_query = prepare_dbapi2(query)?;
     let query = &prepared_query.postgres_query;
     let pool = PgPoolOptions::new()
@@ -58,12 +127,13 @@ pub async fn check_query(db_url: &str, query: &str) -> Result<QueryTypes, Box<dy
         .connect(db_url)
         .await?;
     let prepared = pool.prepare(query).await?;
-    let result_types = prepared
+    let mut result_types: Box<[QueryValue]> = prepared
         .columns()
         .iter()
         .map(|column| QueryValue {
             name: column.name().to_string(),
             type_name: column.type_info().name().to_owned(),
+            nullable: Nullability::Unknown,
         })
         .collect();
     let parameters = match prepared.parameters() {
@@ -74,11 +144,17 @@ pub async fn check_query(db_url: &str, query: &str) -> Result<QueryTypes, Box<dy
             .map(|(type_name, name)| QueryValue {
                 name,
                 type_name: type_name.to_owned(),
+                nullable: Nullability::Unknown,
             })
             .collect(),
         Some(Either::Right(_)) => panic!("Postgres connection should never lead here"),
         None => panic!("Parameter types were not provided."),
     };
+    if experimental_parser {
+        infer_nullability(&pool, query, &mut result_types).await?;
+    }
+    pool.close().await;
+
     Ok(QueryTypes {
         input: parameters,
         output: result_types,
@@ -104,11 +180,12 @@ pub fn query_to_sql_alchemy(
     let mut outs = vec![];
 
     for query_value in &query_types.output {
-        outs.push(format!(
-            "    {}: {} | None",
-            query_value.name,
-            sql_to_py(&query_value.type_name)?
-        ));
+        let py_type = sql_to_py(&query_value.type_name)?;
+        let output_type = match query_value.nullable {
+            Nullability::False => py_type,
+            Nullability::Unknown | Nullability::True => &format!("{} | None", py_type),
+        };
+        outs.push(format!("    {}: {}", query_value.name, output_type,));
     }
     let class_name = to_pascal(&format!("{query_name}_output"));
     let out_types = match outs.is_empty() {
