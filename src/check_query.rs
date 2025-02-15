@@ -153,7 +153,7 @@ impl Display for SqlType {
                 } else {
                     "???"
                 };
-                write!(f, "char({length})",)
+                write!(f, "varchar({length})",)
             }
             SqlType::Text => write!(f, "text"),
             SqlType::Json => write!(f, "json"),
