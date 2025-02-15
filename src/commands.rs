@@ -1,4 +1,5 @@
 use std::{
+    collections::{BTreeMap, HashMap},
     error::Error,
     fs::{self, OpenOptions},
     io::{BufReader, BufWriter, Read, Write},
@@ -16,7 +17,10 @@ fn init_debug() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-use crate::check_query::{check_query, query_to_sql_alchemy};
+use crate::{
+    check_query::{check_query, query_to_json, QueryFn},
+    sqlalchemy::query_to_sql_alchemy,
+};
 #[derive(clap::Args)]
 #[command(version, about, long_about = None)]
 pub struct CheckQueryArgs {
@@ -83,7 +87,7 @@ impl CreateQueryArgs {
         }
         let directory = fs::read_dir(self.sql_dir)?;
         let mut query = String::new();
-        let mut code = include_str!("./template.txt").to_string();
+        let mut jsons = HashMap::<String, QueryFn>::new();
         for file in directory {
             query.clear();
             let file_path = file?.path();
@@ -107,7 +111,43 @@ impl CreateQueryArgs {
                 }
             };
             info!("Check for {file_name} successful!");
-            code.push_str(&query_to_sql_alchemy(&file_name, &query, &query_types)?);
+            if jsons.contains_key(&file_name) {
+                error!("{file_name} already exists. Skipping...");
+                continue;
+            }
+            jsons.insert(file_name, query_to_json(&query, &query_types)?);
+        }
+        let as_json = serde_json::to_string_pretty(&jsons)?;
+        if let Some(out_file) = self.out {
+            std::fs::write(out_file, as_json)?;
+        } else {
+            println!("{as_json}");
+        }
+        Ok(())
+    }
+}
+
+#[derive(clap::Args)]
+#[command(version, about, long_about = None)]
+pub struct SqlAlchemyArgs {
+    #[arg(long, help = "Queries JSON file")]
+    queries: std::path::PathBuf,
+    #[arg(long, help = "Will output to the given file if provided.")]
+    out: Option<std::path::PathBuf>,
+    #[arg(long, help = "Show debug information")]
+    debug: bool,
+}
+
+impl SqlAlchemyArgs {
+    pub fn generate_code(self) -> Result<(), Box<dyn Error>> {
+        if self.debug {
+            init_debug()?;
+        }
+        let mut code = include_str!("./template.txt").to_string();
+        let queries: BTreeMap<String, QueryFn> =
+            serde_json::from_str(&std::fs::read_to_string(self.queries)?)?;
+        for (fn_name, value) in queries.iter() {
+            code.push_str(&query_to_sql_alchemy(fn_name, value)?);
             code.push('\n');
         }
         if let Some(out) = self.out {

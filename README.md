@@ -8,10 +8,16 @@ Generates DBAPI2 code, uses SQLAlchemy Core.
 
 ```./sql-py create-query --db-url <db-connection-url> --sql-dir <directory>```
 - This will create a complete python file that uses sqlalchemy. Each file in the directory should be named as: `<func_name>.sql`. 
+- The program will create a JSON file specifiying the input and output types
+
+
+```./sql-py sql-alchemy --queries <queries.json>```
+- This will create a complete python file that uses sqlalchemy. Each file in the directory should be named as: `<func_name>.sql`. 
 - The program will create a function for each query called <func_name> with the appropriate signature and return types.  
 
-
 ## Options
+### `--out <FILE>`
+- Output to a file instead of stdout
 ### `--debug` 
 - Prints debug information
 ### `--experimental-parser`
