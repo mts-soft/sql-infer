@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select is_nullable, character_maximum_length, numeric_precision, numeric_precision_radix from INFORMATION_SCHEMA.COLUMNS where table_name = $1 and column_name = $2;",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "is_nullable",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "character_maximum_length",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "numeric_precision",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "numeric_precision_radix",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Name",
+        "Name"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "fce95d87dc08b3880e3a5b9946c2f33661d3874c6fa7b2dc84a76d2fb5c69ae4"
+}

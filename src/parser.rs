@@ -129,6 +129,9 @@ fn find_field(
                      */
                     let table_name = idents.get(idents.len() - 2);
                     if let Some((table_name, item_name)) = table_name.zip(idents.last()) {
+                        if item_name.value != field {
+                            continue;
+                        }
                         let table = tables.iter().find(|table| table.name == table_name.value);
 
                         return Ok(Some(SourceColumn {
