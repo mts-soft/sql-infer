@@ -4,7 +4,8 @@ use std::fmt::Display;
 use std::{error::Error, fmt};
 use tracing::warn;
 
-use crate::parser::{find_source, to_ast};
+use crate::config::FeatureSet;
+use crate::parser::{find_source, to_ast, DbTable};
 use crate::query_converter::prepare_dbapi2;
 use serde::{Deserialize, Serialize};
 
@@ -199,48 +200,61 @@ impl SqlType {
 
 pub async fn update_with_info(
     pool: &Pool<Postgres>,
-    table_name: &str,
+    table: &DbTable,
     item: &mut QueryItem,
-) -> Result<Nullability, Box<dyn Error>> {
+    features: &FeatureSet,
+) -> Result<(), Box<dyn Error>> {
     let query = query!(
         "select is_nullable, character_maximum_length, numeric_precision, numeric_precision_radix from INFORMATION_SCHEMA.COLUMNS where table_name = $1 and column_name = $2;",
-        table_name,
+        table.name,
         item.name,
     );
     let res = query.fetch_optional(pool).await?;
     let Some(column) = res else {
-        return Ok(Nullability::Unknown);
+        return Ok(());
     };
-
-    if let SqlType::Char { length } | SqlType::VarChar { length } = &mut item.sql_type {
-        if let Some(character_maximum_length) = column.character_maximum_length {
-            *length = Some(character_maximum_length as u32)
+    if features.precise_output_datatypes {
+        if let SqlType::Char { length } | SqlType::VarChar { length } = &mut item.sql_type {
+            if let Some(character_maximum_length) = column.character_maximum_length {
+                *length = Some(character_maximum_length as u32)
+            }
+        }
+        if let SqlType::Decimal {
+            precision,
+            precision_radix,
+        } = &mut item.sql_type
+        {
+            if let Some((numeric_precision, numeric_precision_radix)) =
+                column.numeric_precision.zip(column.numeric_precision_radix)
+            {
+                *precision = Some(numeric_precision as u32);
+                *precision_radix = Some(numeric_precision_radix as u32);
+            };
         }
     }
-    if let SqlType::Decimal {
-        precision,
-        precision_radix,
-    } = &mut item.sql_type
-    {
-        if let Some((numeric_precision, numeric_precision_radix)) =
-            column.numeric_precision.zip(column.numeric_precision_radix)
-        {
-            *precision = Some(numeric_precision as u32);
-            *precision_radix = Some(numeric_precision_radix as u32);
-        };
+
+    if features.infer_nullability {
+        if table.nullable {
+            item.nullable = Nullability::True;
+        } else {
+            item.nullable = match column.is_nullable {
+                Some(nullable) => match &*nullable {
+                    "NO" => Nullability::False,
+                    "YES" => Nullability::True,
+                    _ => Nullability::Unknown,
+                },
+                None => Nullability::Unknown,
+            };
+        }
     }
-    Ok(column
-        .is_nullable
-        .map_or(Nullability::Unknown, |nullable| match nullable == "NO" {
-            true => Nullability::False,
-            false => Nullability::True,
-        }))
+    Ok(())
 }
 
-pub async fn infer_nullability(
+pub async fn feature_passes(
     pool: &Pool<Postgres>,
     query: &str,
     output_types: &mut [QueryItem],
+    features: &FeatureSet,
 ) -> Result<(), Box<dyn Error>> {
     let ast = to_ast(query)?;
     let mut errors: Vec<String> = vec![];
@@ -251,12 +265,7 @@ pub async fn infer_nullability(
                     warn!("No source table found for column {}", &output.name);
                     continue;
                 };
-                if table.nullable {
-                    output.nullable = Nullability::True;
-                    continue;
-                }
-                let nullability = update_with_info(pool, &table.name, output).await?;
-                output.nullable = nullability;
+                update_with_info(pool, &table, output, features).await?;
             }
             Ok(None) => errors.push("No Sources Found".into()),
             Err(err) => errors.push(err.to_string()),
@@ -272,7 +281,7 @@ pub async fn infer_nullability(
 pub async fn check_query(
     db_url: &str,
     query: &str,
-    experimental_parser: bool,
+    features: &FeatureSet,
 ) -> Result<QueryTypes, Box<dyn Error>> {
     let prepared_query = prepare_dbapi2(query)?;
     let query = &prepared_query.postgres_query;
@@ -303,9 +312,7 @@ pub async fn check_query(
         Some(Either::Right(_)) => panic!("Postgres connection should never lead here"),
         None => panic!("Parameter types were not provided."),
     };
-    if experimental_parser {
-        infer_nullability(&pool, query, &mut result_types).await?;
-    }
+    feature_passes(&pool, query, &mut result_types, features).await?;
     pool.close().await;
 
     Ok(QueryTypes {
@@ -314,7 +321,7 @@ pub async fn check_query(
     })
 }
 
-pub fn query_to_json(query: &str, query_types: &QueryTypes) -> Result<QueryFn, Box<dyn Error>> {
+pub fn to_query_fn(query: &str, query_types: &QueryTypes) -> Result<QueryFn, Box<dyn Error>> {
     let mut input_types = Vec::with_capacity(query_types.input.len());
     for input in &query_types.input {
         input_types.push(QueryItem {

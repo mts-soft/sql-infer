@@ -1,25 +1,72 @@
-# sql-py
+# sql-infer
+
 Generates DBAPI2 code, uses SQLAlchemy Core.
 
-## Check query validity 
-```./sql-py check-query --db <db-connection-url> --sql <query.sql>```
-- This will verify the query against the database without running it and show expected parameter types and the return type.
+## Init config file
 
+`./sql-infer init`
 
-```./sql-py create-query --db-url <db-connection-url> --sql-dir <directory>```
-- This will create a complete python file that uses sqlalchemy. Each file in the directory should be named as: `<func_name>.sql`. 
-- The program will create a JSON file specifiying the input and output types
+## Check query validity and generate code
 
+`./sql-infer generate`
 
-```./sql-py sql-alchemy --queries <queries.json>```
-- This will create a complete python file that uses sqlalchemy. Each file in the directory should be named as: `<func_name>.sql`. 
-- The program will create a function for each query called <func_name> with the appropriate signature and return types.  
+## Debug
 
-## Options
-### `--out <FILE>`
-- Output to a file instead of stdout
-### `--debug` 
-- Prints debug information
-### `--experimental-parser`
-- Parses the given query to find which table and column each item originates from. Currently supports a small subset of SQL however should be usable for most shorter queries. 
-- This feature is currently only used to infer nullability but will be expanded to also help infer types more accurately. 
+Each command can be run with `--debug` to print more information
+
+## Example Config file
+
+```toml
+path = "<path/to/input/directory>"
+target = "<path/to/output/file>"
+mode = "json" # or "sql-alchemy"
+
+[database]
+host = "127.0.0.1"
+port = 5432
+user = "root"
+password = ""
+name = ""
+
+[experimental-features]
+infer-nullability = true
+precise-output-datatypes = true
+```
+
+## Modes
+
+### `"json"`
+
+Serialize typing information to a JSON file. JSON is always the primarily supported code generation option and will support every feature.
+
+Supported features:
+
+- All
+
+### `"sql-alchemy"`
+
+Generate type-safe SQL Alchemy Core code using the provided typing information.
+
+Supported features:
+
+- Infer nullability
+
+## Experimental Features
+
+These features may be removed at any time
+
+### Infer Nullability
+
+Infer whether the output type is nullable or not to the extent possible.
+
+This currently works for queries that only use inner/left/right/cross joins and queries that return a column as is without any modification.
+
+### Precise Output Datatypes
+
+Infer additional information relating to the datatype.
+
+- with/without timezone for Timestamp and Time
+- Char and VarChar lengths
+- Decimal precision and precision radix
+
+This currently works for queries that only use inner/left/right/cross joins and queries that return a column as is without any modification.
