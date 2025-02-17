@@ -1,8 +1,8 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::HashSet,
     error::Error,
     fs::{self, OpenOptions},
-    io::{BufReader, BufWriter, Read, Write},
+    io::{BufReader, Read},
 };
 
 use async_std::task;
@@ -18,76 +18,59 @@ fn init_debug() -> Result<(), Box<dyn Error>> {
 }
 
 use crate::{
-    check_query::{check_query, query_to_json, QueryFn},
-    sqlalchemy::query_to_sql_alchemy,
+    check_query::{check_query, to_query_fn},
+    codegen::{json::JsonCodeGen, sqlalchemy::SqlAlchemyCodeGen, CodeGen},
+    config::{CodeGenOptions, DbInfo, ExperimentalFeatures, SqlInferConfig, SqlInferOptions},
 };
-#[derive(clap::Args)]
-#[command(version, about, long_about = None)]
-pub struct CheckQueryArgs {
-    #[arg(long, help = "DB connection URL")]
-    db: String,
-    #[arg(long, help = "The SQL query to check")]
-    sql: std::path::PathBuf,
-    #[arg(long, help = "Will output to the given file if provided.")]
-    out: Option<std::path::PathBuf>,
-    #[arg(
-        long,
-        help = "Enable the experimental parser to more accurately detect types"
-    )]
-    experimental_parser: bool,
-    #[arg(long, help = "Show debug information")]
-    debug: bool,
-}
 
-impl CheckQueryArgs {
-    pub fn check_query(self) -> Result<(), Box<dyn Error>> {
-        if self.debug {
-            init_debug()?;
+#[derive(clap::Args)]
+#[command(version, about, long_about = None, name = "init")]
+pub struct Initialize {}
+
+impl Initialize {
+    pub fn init(self) -> Result<(), Box<dyn Error>> {
+        const FILE_NAME: &str = "sql-infer.toml";
+        let exists = std::fs::exists(FILE_NAME)?;
+        if exists {
+            eprintln!("{FILE_NAME} already exists.\nExiting...");
+            return Ok(());
         }
-        let file = OpenOptions::new().read(true).open(self.sql)?;
-        let mut reader = BufReader::new(file);
-        let mut query = String::new();
-        reader.read_to_string(&mut query)?;
-        let query_types = task::block_on(check_query(&self.db, &query, self.experimental_parser))?;
-        eprintln!("Check successful!");
-        eprintln!("Input types: ");
-        for input in &query_types.input {
-            eprintln!("{}: {}", input.name, input.sql_type)
-        }
-        eprintln!("Output types: ");
-        for output in &query_types.output {
-            eprintln!("{}: {}", output.name, output.sql_type)
-        }
+
+        let options = SqlInferOptions {
+            path: "<path/to/input/directory>".into(),
+            target: Some("<path/to/output/file>".into()),
+            mode: CodeGenOptions::Json,
+            database: DbInfo::default(),
+            experimental_features: ExperimentalFeatures::default(),
+        };
+        let toml = toml::to_string_pretty(&options)?;
+        std::fs::write(FILE_NAME, toml)?;
+        eprintln!("Written config to {FILE_NAME}!");
         Ok(())
     }
 }
 
 #[derive(clap::Args)]
 #[command(version, about, long_about = None)]
-pub struct CreateQueryArgs {
-    #[arg(long, help = "DB connection URL")]
-    db_url: String,
-    #[arg(long, help = "The directory where all the queries are in")]
-    sql_dir: std::path::PathBuf,
-    #[arg(long, help = "Will output to the given file if provided.")]
-    out: Option<std::path::PathBuf>,
-    #[arg(
-        long,
-        help = "Enable the experimental parser to more accurately detect types"
-    )]
-    experimental_parser: bool,
+pub struct Generate {
     #[arg(long, help = "Show debug information")]
     debug: bool,
 }
 
-impl CreateQueryArgs {
-    pub fn create_query(self) -> Result<(), Box<dyn Error>> {
+impl Generate {
+    pub fn generate(self, config: SqlInferConfig) -> Result<(), Box<dyn Error>> {
         if self.debug {
             init_debug()?;
         }
-        let directory = fs::read_dir(self.sql_dir)?;
+        let directory = fs::read_dir(config.path)?;
         let mut query = String::new();
-        let mut jsons = HashMap::<String, QueryFn>::new();
+        let mut files = HashSet::<String>::new();
+
+        let mut codegen: Box<dyn CodeGen> = match config.mode {
+            CodeGenOptions::Json => Box::new(JsonCodeGen::new()),
+            CodeGenOptions::SqlAlchemy => Box::new(SqlAlchemyCodeGen::new()),
+        };
+
         for file in directory {
             query.clear();
             let file_path = file?.path();
@@ -102,7 +85,7 @@ impl CreateQueryArgs {
             reader.read_to_string(&mut query)?;
 
             let check_result =
-                task::block_on(check_query(&self.db_url, &query, self.experimental_parser));
+                task::block_on(check_query(&config.db_url, &query, &config.features));
             let query_types = match check_result {
                 Ok(query_types) => query_types,
                 Err(err) => {
@@ -111,55 +94,18 @@ impl CreateQueryArgs {
                 }
             };
             info!("Check for {file_name} successful!");
-            if jsons.contains_key(&file_name) {
+            if files.contains(&file_name) {
                 error!("{file_name} already exists. Skipping...");
                 continue;
             }
-            jsons.insert(file_name, query_to_json(&query, &query_types)?);
+            codegen.push(&file_name, to_query_fn(&query, &query_types)?)?;
+            files.insert(file_name);
         }
-        let as_json = serde_json::to_string_pretty(&jsons)?;
-        if let Some(out_file) = self.out {
-            std::fs::write(out_file, as_json)?;
+        let code = codegen.finalize()?;
+        if let Some(out_file) = config.target {
+            std::fs::write(out_file, code)?;
         } else {
-            println!("{as_json}");
-        }
-        Ok(())
-    }
-}
-
-#[derive(clap::Args)]
-#[command(version, about, long_about = None)]
-pub struct SqlAlchemyArgs {
-    #[arg(long, help = "Queries JSON file")]
-    queries: std::path::PathBuf,
-    #[arg(long, help = "Will output to the given file if provided.")]
-    out: Option<std::path::PathBuf>,
-    #[arg(long, help = "Show debug information")]
-    debug: bool,
-}
-
-impl SqlAlchemyArgs {
-    pub fn generate_code(self) -> Result<(), Box<dyn Error>> {
-        if self.debug {
-            init_debug()?;
-        }
-        let mut code = include_str!("./template.txt").to_string();
-        let queries: BTreeMap<String, QueryFn> =
-            serde_json::from_str(&std::fs::read_to_string(self.queries)?)?;
-        for (fn_name, value) in queries.iter() {
-            code.push_str(&query_to_sql_alchemy(fn_name, value)?);
-            code.push('\n');
-        }
-        if let Some(out) = self.out {
-            let file = OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .open(out)?;
-            let mut writer = BufWriter::new(file);
-            writer.write_all(code.as_bytes())?;
-        } else {
-            println!("{}", code);
+            println!("{code}");
         }
         Ok(())
     }

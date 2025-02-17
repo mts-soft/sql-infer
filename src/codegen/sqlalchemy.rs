@@ -1,8 +1,10 @@
-use std::error::Error;
+use std::{collections::BTreeMap, error::Error};
 
 use crate::check_query::{Nullability, QueryFn, QueryItem, SqlType};
 
-pub fn to_pascal(mixed_case_name: &str) -> String {
+use super::CodeGen;
+
+fn to_pascal(mixed_case_name: &str) -> String {
     let mut words = vec![];
     let mut curr = String::new();
     for character in mixed_case_name.chars() {
@@ -24,7 +26,7 @@ pub fn to_pascal(mixed_case_name: &str) -> String {
     words.join("")
 }
 
-pub fn to_py_type(item: &QueryItem) -> String {
+fn to_py_type(item: &QueryItem) -> String {
     let py_type = match item.sql_type {
         SqlType::Bool => "bool",
         SqlType::Int2
@@ -52,7 +54,7 @@ pub fn to_py_type(item: &QueryItem) -> String {
     }
 }
 
-pub fn query_to_sql_alchemy(fn_name: &str, query_fn: &QueryFn) -> Result<String, Box<dyn Error>> {
+fn query_to_sql_alchemy(fn_name: &str, query_fn: &QueryFn) -> Result<String, Box<dyn Error>> {
     let mut params = vec!["conn: Connection".to_owned()];
     let mut binds = vec![];
 
@@ -97,4 +99,33 @@ pub fn query_to_sql_alchemy(fn_name: &str, query_fn: &QueryFn) -> Result<String,
     Ok(format!(
         "{return_type}\n\n{function_signature}\n{function_content}"
     ))
+}
+
+pub struct SqlAlchemyCodeGen {
+    queries: BTreeMap<String, QueryFn>,
+}
+
+impl SqlAlchemyCodeGen {
+    pub fn new() -> Self {
+        SqlAlchemyCodeGen {
+            queries: BTreeMap::new(),
+        }
+    }
+}
+
+impl CodeGen for SqlAlchemyCodeGen {
+    fn push(&mut self, file_name: &str, query: QueryFn) -> Result<(), Box<dyn Error>> {
+        self.queries.insert(file_name.to_string(), query);
+        Ok(())
+    }
+
+    fn finalize(&self) -> Result<String, Box<dyn Error>> {
+        let mut code = include_str!("./sqlalchemy/template.txt").to_string();
+        for (file_name, query) in &self.queries {
+            let func = query_to_sql_alchemy(file_name, query)?;
+            code.push_str(&func);
+            code.push('\n');
+        }
+        Ok(code)
+    }
 }
