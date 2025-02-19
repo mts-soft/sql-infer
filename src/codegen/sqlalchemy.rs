@@ -1,6 +1,9 @@
 use std::{collections::BTreeMap, error::Error};
 
-use crate::check_query::{Nullability, QueryFn, QueryItem, SqlType};
+use crate::{
+    check_query::{Nullability, QueryFn, QueryItem, SqlType},
+    config::FeatureSet,
+};
 
 use super::CodeGen;
 
@@ -119,7 +122,7 @@ impl CodeGen for SqlAlchemyCodeGen {
         Ok(())
     }
 
-    fn finalize(&self) -> Result<String, Box<dyn Error>> {
+    fn finalize(&self, _: &FeatureSet) -> Result<String, Box<dyn Error>> {
         let mut code = include_str!("./sqlalchemy/template.txt").to_string();
         for (file_name, query) in &self.queries {
             let func = query_to_sql_alchemy(file_name, query)?;

@@ -9,7 +9,7 @@ use crate::parser::{find_source, to_ast, DbTable};
 use crate::query_converter::prepare_dbapi2;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct QueryItem {
     pub name: String,
     pub sql_type: SqlType,
@@ -47,13 +47,13 @@ pub enum Nullability {
     Unknown,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QueryTypes {
     pub input: Box<[QueryItem]>,
     pub output: Box<[QueryItem]>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum SqlType {
     Bool,
     // Integer Types
@@ -279,6 +279,42 @@ pub async fn feature_passes(
 }
 
 pub async fn check_query(
+    db_url: &str,
+    query: &str,
+    features: &FeatureSet,
+) -> Result<QueryTypes, Box<dyn Error>> {
+    let mut in_quotes = false;
+    let mut query_buffer = String::with_capacity(query.len());
+
+    let mut input_types = vec![];
+    let mut output_types = None;
+    for char in query.chars() {
+        if char == '"' {
+            in_quotes = !in_quotes
+        }
+        query_buffer.push(char);
+        if !in_quotes && char == ';' {
+            let query = check_statement(db_url, &query_buffer, features).await?;
+            query_buffer.clear();
+            for input in query.input {
+                if input_types.contains(&input) {
+                    continue;
+                }
+                input_types.push(input);
+            }
+            output_types = Some(query.output);
+        }
+    }
+    match output_types {
+        Some(output_types) => Ok(QueryTypes {
+            input: input_types.into_boxed_slice(),
+            output: output_types,
+        }),
+        None => check_statement(db_url, query, features).await,
+    }
+}
+
+async fn check_statement(
     db_url: &str,
     query: &str,
     features: &FeatureSet,

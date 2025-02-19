@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, error::Error};
 
-use crate::check_query::QueryFn;
+use crate::{check_query::QueryFn, config::FeatureSet};
 
 use super::CodeGen;
 
@@ -22,7 +22,7 @@ impl CodeGen for JsonCodeGen {
         Ok(())
     }
 
-    fn finalize(&self) -> Result<String, Box<dyn Error>> {
+    fn finalize(&self, _: &FeatureSet) -> Result<String, Box<dyn Error>> {
         Ok(serde_json::to_string_pretty(&self.queries)?)
     }
 }

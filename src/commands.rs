@@ -101,7 +101,7 @@ impl Generate {
             codegen.push(&file_name, to_query_fn(&query, &query_types)?)?;
             files.insert(file_name);
         }
-        let code = codegen.finalize()?;
+        let code = codegen.finalize(&config.features)?;
         if let Some(out_file) = config.target {
             std::fs::write(out_file, code)?;
         } else {
