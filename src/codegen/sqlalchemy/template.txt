@@ -9,6 +9,8 @@ from sqlalchemy import text
 if TYPE_CHECKING:
     from datetime import datetime, timedelta, date
     from decimal import Decimal
+    
+    from typing import Any
 
     from sqlalchemy import Connection
 
