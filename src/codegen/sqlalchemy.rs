@@ -29,7 +29,7 @@ fn to_pascal(mixed_case_name: &str) -> String {
     words.join("")
 }
 
-fn to_py_type(item: &QueryItem) -> String {
+fn to_py_input_type(item: &QueryItem) -> String {
     let py_type = match item.sql_type {
         SqlType::Bool => "bool",
         SqlType::Int2
@@ -47,10 +47,23 @@ fn to_py_type(item: &QueryItem) -> String {
         | SqlType::Text
         | SqlType::Json
         | SqlType::Jsonb => "str",
+
         SqlType::Float4 | SqlType::Float8 => "float",
         SqlType::Interval => "timedelta",
     }
-    .to_string();
+    .to_owned();
+    match item.nullable {
+        Nullability::True | Nullability::Unknown => format!("{} | None", py_type),
+        Nullability::False => py_type,
+    }
+}
+
+fn to_py_output_type(item: &QueryItem) -> String {
+    let py_type = match item.sql_type {
+        SqlType::Json | SqlType::Jsonb => "dict[str, Any]",
+        _ => return to_py_input_type(item),
+    }
+    .to_owned();
     match item.nullable {
         Nullability::True | Nullability::Unknown => format!("{} | None", py_type),
         Nullability::False => py_type,
@@ -63,13 +76,13 @@ fn query_to_sql_alchemy(fn_name: &str, query_fn: &QueryFn) -> Result<String, Box
 
     for query_value in &query_fn.inputs {
         let param_name = &query_value.name;
-        params.push(format!("{}: {}", param_name, to_py_type(query_value)));
+        params.push(format!("{}: {}", param_name, to_py_input_type(query_value)));
         binds.push(format!("\"{param_name}\": {param_name}"));
     }
     let mut outs = vec![];
 
     for query_value in &query_fn.outputs {
-        let py_type = to_py_type(query_value);
+        let py_type = to_py_output_type(query_value);
         outs.push(format!("    {}: {}", query_value.name, py_type));
     }
     let class_name = to_pascal(&format!("{fn_name}_output"));
