@@ -6,8 +6,16 @@ use std::{
 };
 
 use async_std::task;
-use tracing::{error, info, Level};
+use tracing::{Level, error, info};
 use tracing_subscriber::FmtSubscriber;
+
+fn init_standard() -> Result<(), Box<dyn Error>> {
+    let subscriber = FmtSubscriber::builder()
+        .with_max_level(Level::WARN)
+        .finish();
+    tracing::subscriber::set_global_default(subscriber)?;
+    Ok(())
+}
 
 fn init_debug() -> Result<(), Box<dyn Error>> {
     let subscriber = FmtSubscriber::builder()
@@ -19,12 +27,12 @@ fn init_debug() -> Result<(), Box<dyn Error>> {
 
 use crate::{
     check_query::{check_query, to_query_fn},
-    codegen::{json::JsonCodeGen, sqlalchemy::SqlAlchemyCodeGen, CodeGen},
-    config::{CodeGenOptions, DbInfo, ExperimentalFeatures, SqlInferConfig, SqlInferOptions},
+    codegen::{CodeGen, json::JsonCodeGen, sqlalchemy::SqlAlchemyCodeGen},
+    config::{CodeGenOptions, ExperimentalFeatures, SqlInferOptions, get_config},
 };
 
 #[derive(clap::Args)]
-#[command(version, about, long_about = None, name = "init")]
+#[command(about, long_about = None, name = "init")]
 pub struct Initialize {}
 
 impl Initialize {
@@ -40,7 +48,7 @@ impl Initialize {
             path: "<path/to/input/directory>".into(),
             target: Some("<path/to/output/file>".into()),
             mode: CodeGenOptions::Json,
-            database: DbInfo::default(),
+            database: None,
             experimental_features: ExperimentalFeatures::default(),
         };
         let toml = toml::to_string_pretty(&options)?;
@@ -51,17 +59,19 @@ impl Initialize {
 }
 
 #[derive(clap::Args)]
-#[command(version, about, long_about = None)]
+#[command(about, long_about = None)]
 pub struct Generate {
     #[arg(long, help = "Show debug information")]
     debug: bool,
 }
 
 impl Generate {
-    pub fn generate(self, config: SqlInferConfig) -> Result<(), Box<dyn Error>> {
-        if self.debug {
-            init_debug()?;
+    pub fn generate(self) -> Result<(), Box<dyn Error>> {
+        match self.debug {
+            true => init_debug()?,
+            false => init_standard()?,
         }
+        let config = get_config()?;
         let directory = fs::read_dir(config.path)?;
         let mut query = String::new();
         let mut files = HashSet::<String>::new();

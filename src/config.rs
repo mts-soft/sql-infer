@@ -1,4 +1,27 @@
+use std::{env, error::Error, fmt::Display};
+
+use dotenvy::dotenv;
 use serde::{Deserialize, Serialize};
+
+const DATABASE_URL: &str = "DATABASE_URL";
+
+#[derive(Debug, Clone)]
+pub enum ConfigError {
+    DbUrlNotFound,
+}
+
+impl Display for ConfigError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConfigError::DbUrlNotFound => write!(
+                f,
+                "Database URL not found, please set the {DATABASE_URL} environment variable."
+            ),
+        }
+    }
+}
+
+impl Error for ConfigError {}
 
 #[derive(Serialize, Deserialize, Copy, Clone, Debug)]
 #[serde(rename_all = "kebab-case")]
@@ -45,27 +68,39 @@ pub struct SqlInferOptions {
     pub path: String,
     pub target: Option<String>,
     pub mode: CodeGenOptions,
-    pub database: DbInfo,
+    pub database: Option<DbInfo>,
     pub experimental_features: ExperimentalFeatures,
 }
 
 impl SqlInferOptions {
-    pub fn into_config(self) -> SqlInferConfig {
-        let db_url = format!(
-            "postgres://{}:{}@{}:{}/{}",
-            self.database.user,
-            self.database.password,
-            self.database.host,
-            self.database.port,
-            self.database.name
-        );
-        SqlInferConfig {
+    pub fn into_config(self) -> Result<SqlInferConfig, Box<dyn Error>> {
+        dotenv()?;
+        let mut db_url = None;
+        if let Some(database) = self.database {
+            tracing::warn!(
+                "database in config is deprecated, use the DATABASE_URL environment variable."
+            );
+            db_url = Some(format!(
+                "postgres://{}:{}@{}:{}/{}",
+                database.user, database.password, database.host, database.port, database.name
+            ));
+        } else {
+            for (key, value) in env::vars() {
+                if key == DATABASE_URL {
+                    db_url = Some(value.to_owned());
+                }
+            }
+        };
+        let Some(db_url) = db_url else {
+            Err(ConfigError::DbUrlNotFound)?
+        };
+        Ok(SqlInferConfig {
             db_url,
             path: self.path,
             target: self.target,
             mode: self.mode,
             features: self.experimental_features.into_feature_set(),
-        }
+        })
     }
 }
 
@@ -75,4 +110,10 @@ pub struct SqlInferConfig {
     pub mode: CodeGenOptions,
     pub db_url: String,
     pub features: FeatureSet,
+}
+
+pub fn get_config() -> Result<SqlInferConfig, Box<dyn Error>> {
+    let content = std::fs::read_to_string("sql-infer.toml")?;
+    let options: SqlInferOptions = toml::from_str(&content)?;
+    options.into_config()
 }
