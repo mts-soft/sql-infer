@@ -1801,6 +1801,7 @@ dependencies = [
  "async-std",
  "chrono",
  "clap",
+ "dotenvy",
  "regex",
  "serde",
  "serde_json",
