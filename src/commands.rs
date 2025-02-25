@@ -6,6 +6,7 @@ use std::{
 };
 
 use async_std::task;
+use sqlx::postgres::PgPoolOptions;
 use tracing::{Level, error, info};
 use tracing_subscriber::FmtSubscriber;
 
@@ -81,6 +82,12 @@ impl Generate {
             CodeGenOptions::SqlAlchemy => Box::new(SqlAlchemyCodeGen::new()),
         };
 
+        let pool = task::block_on(
+            PgPoolOptions::new()
+                .max_connections(1)
+                .connect(&config.db_url),
+        )?;
+
         for file in directory {
             query.clear();
             let file_path = file?.path();
@@ -95,7 +102,7 @@ impl Generate {
             reader.read_to_string(&mut query)?;
 
             let check_result =
-                task::block_on(check_query(&config.db_url, &query, &config.features));
+                task::block_on(check_query(&pool, &query, &config.features));
             let query_types = match check_result {
                 Ok(query_types) => query_types,
                 Err(err) => {

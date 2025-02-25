@@ -1,11 +1,11 @@
-use sqlx::{postgres::PgPoolOptions, Executor};
-use sqlx::{query, Column, Either, Pool, Postgres, Statement, TypeInfo};
+use sqlx::Executor;
+use sqlx::{Column, Either, Pool, Postgres, Statement, TypeInfo, query};
 use std::fmt::Display;
 use std::{error::Error, fmt};
 use tracing::warn;
 
 use crate::config::FeatureSet;
-use crate::parser::{find_source, to_ast, DbTable};
+use crate::parser::{DbTable, find_source, to_ast};
 use crate::query_converter::prepare_dbapi2;
 use serde::{Deserialize, Serialize};
 
@@ -279,7 +279,7 @@ pub async fn feature_passes(
 }
 
 pub async fn check_query(
-    db_url: &str,
+    pool: &Pool<Postgres>,
     query: &str,
     features: &FeatureSet,
 ) -> Result<QueryTypes, Box<dyn Error>> {
@@ -294,7 +294,7 @@ pub async fn check_query(
         }
         query_buffer.push(char);
         if !in_quotes && char == ';' {
-            let query = check_statement(db_url, &query_buffer, features).await?;
+            let query = check_statement(pool, &query_buffer, features).await?;
             query_buffer.clear();
             for input in query.input {
                 if input_types.contains(&input) {
@@ -310,21 +310,17 @@ pub async fn check_query(
             input: input_types.into_boxed_slice(),
             output: output_types,
         }),
-        None => check_statement(db_url, query, features).await,
+        None => check_statement(pool, query, features).await,
     }
 }
 
 async fn check_statement(
-    db_url: &str,
+    pool: &Pool<Postgres>,
     query: &str,
     features: &FeatureSet,
 ) -> Result<QueryTypes, Box<dyn Error>> {
     let prepared_query = prepare_dbapi2(query)?;
     let query = &prepared_query.postgres_query;
-    let pool = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(db_url)
-        .await?;
     let prepared = pool.prepare(query).await?;
     let mut result_types = Vec::with_capacity(prepared.columns().len());
     for column in prepared.columns() {
@@ -349,7 +345,6 @@ async fn check_statement(
         None => panic!("Parameter types were not provided."),
     };
     feature_passes(&pool, query, &mut result_types, features).await?;
-    pool.close().await;
 
     Ok(QueryTypes {
         input: input_types.into_boxed_slice(),
