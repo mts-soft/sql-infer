@@ -29,7 +29,7 @@ fn init_debug() -> Result<(), Box<dyn Error>> {
 use crate::{
     check_query::{check_query, to_query_fn},
     codegen::{CodeGen, json::JsonCodeGen, sqlalchemy::SqlAlchemyCodeGen},
-    config::{CodeGenOptions, ExperimentalFeatures, SqlInferOptions, get_config},
+    config::{CodeGenOptions, ExperimentalFeatures, QueryPath, SqlInferOptions, get_config},
 };
 
 #[derive(clap::Args)]
@@ -46,7 +46,7 @@ impl Initialize {
         }
 
         let options = SqlInferOptions {
-            path: "<path/to/input/directory>".into(),
+            path: QueryPath::Single("<path/to/input/directory>".into()),
             target: Some("<path/to/output/file>".into()),
             mode: CodeGenOptions::Json,
             database: None,
@@ -73,7 +73,17 @@ impl Generate {
             false => init_standard()?,
         }
         let config = get_config()?;
-        let directory = fs::read_dir(config.path)?;
+
+        let paths = match config.path {
+            QueryPath::Single(path) => fs::read_dir(path)?.collect::<Vec<_>>(),
+            QueryPath::List(paths) => {
+                let mut all_paths = vec![];
+                for path in paths {
+                    all_paths.extend(fs::read_dir(path)?);
+                }
+                all_paths
+            }
+        };
         let mut query = String::new();
         let mut files = HashSet::<String>::new();
 
@@ -88,21 +98,24 @@ impl Generate {
                 .connect(&config.db_url),
         )?;
 
-        for file in directory {
-            query.clear();
-            let file_path = file?.path();
+        for file in paths {
+            let file = file?;
+            if !file.metadata()?.is_file() {
+                continue;
+            }
+            let file_path = file.path();
             let Some(stem) = file_path.file_stem() else {
                 info!("Skipping {file_path:?} as the filename is not valid.");
                 continue;
             };
+            query.clear();
             let file_name = stem.to_string_lossy().to_string();
 
             let file = OpenOptions::new().read(true).open(file_path)?;
             let mut reader = BufReader::new(file);
             reader.read_to_string(&mut query)?;
 
-            let check_result =
-                task::block_on(check_query(&pool, &query, &config.features));
+            let check_result = task::block_on(check_query(&pool, &query, &config.features));
             let query_types = match check_result {
                 Ok(query_types) => query_types,
                 Err(err) => {

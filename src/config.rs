@@ -55,6 +55,14 @@ impl ExperimentalFeatures {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "kebab-case")]
+#[serde(untagged)]
+pub enum QueryPath {
+    Single(String),
+    List(Box<[String]>),
+}
+
 #[derive(Clone, Debug)]
 pub struct FeatureSet {
     pub infer_nullability: bool,
@@ -65,7 +73,7 @@ pub struct FeatureSet {
 #[serde(rename_all = "kebab-case")]
 #[must_use]
 pub struct SqlInferOptions {
-    pub path: String,
+    pub path: QueryPath,
     pub target: Option<String>,
     pub mode: CodeGenOptions,
     pub database: Option<DbInfo>,
@@ -105,7 +113,7 @@ impl SqlInferOptions {
 }
 
 pub struct SqlInferConfig {
-    pub path: String,
+    pub path: QueryPath,
     pub target: Option<String>,
     pub mode: CodeGenOptions,
     pub db_url: String,

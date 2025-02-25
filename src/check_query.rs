@@ -344,7 +344,7 @@ async fn check_statement(
         Some(Either::Right(_)) => panic!("Postgres connection should never lead here"),
         None => panic!("Parameter types were not provided."),
     };
-    feature_passes(&pool, query, &mut result_types, features).await?;
+    feature_passes(pool, query, &mut result_types, features).await?;
 
     Ok(QueryTypes {
         input: input_types.into_boxed_slice(),
