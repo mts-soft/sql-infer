@@ -12,7 +12,7 @@ use clap::*;
 use commands::{Generate, Initialize};
 
 #[derive(Parser)]
-#[command(name = "sql-infer", bin_name = "sql-infer", version = "0.6.2")]
+#[command(name = "sql-infer", bin_name = "sql-infer")]
 enum Command {
     Generate(Generate),
     Init(Initialize),
