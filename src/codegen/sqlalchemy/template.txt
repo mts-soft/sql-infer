@@ -14,6 +14,16 @@ if TYPE_CHECKING:
 
     from sqlalchemy import Connection
 
+Json = (
+    str
+    | bool
+    | int
+    | float
+    | dict[str, ForwardRef("Json")]
+    | list[ForwardRef("Json")]
+    | None
+)
+
 @dataclass
 class DbOutput[T]:
     inner: Generator[T]

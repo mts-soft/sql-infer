@@ -60,7 +60,7 @@ fn to_py_input_type(item: &QueryItem) -> String {
 
 fn to_py_output_type(item: &QueryItem) -> String {
     let py_type = match item.sql_type {
-        SqlType::Json | SqlType::Jsonb => "dict[str, Any]",
+        SqlType::Json | SqlType::Jsonb => "Json",
         _ => return to_py_input_type(item),
     }
     .to_owned();
