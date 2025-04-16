@@ -28,7 +28,10 @@ fn init_debug() -> Result<(), Box<dyn Error>> {
 
 use crate::{
     check_query::{check_query, to_query_fn},
-    codegen::{CodeGen, json::JsonCodeGen, sqlalchemy::SqlAlchemyCodeGen},
+    codegen::{
+        CodeGen, json::JsonCodeGen, sqlalchemy::SqlAlchemyCodeGen,
+        sqlalchemy_async::SqlAlchemyAsyncCodeGen,
+    },
     config::{CodeGenOptions, ExperimentalFeatures, QueryPath, SqlInferOptions, get_config},
 };
 
@@ -90,6 +93,7 @@ impl Generate {
         let mut codegen: Box<dyn CodeGen> = match config.mode {
             CodeGenOptions::Json => Box::new(JsonCodeGen::new()),
             CodeGenOptions::SqlAlchemy => Box::new(SqlAlchemyCodeGen::new()),
+            CodeGenOptions::SqlAlchemyAsync => Box::new(SqlAlchemyAsyncCodeGen::new()),
         };
 
         let pool = task::block_on(

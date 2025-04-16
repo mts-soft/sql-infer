@@ -28,6 +28,7 @@ impl Error for ConfigError {}
 pub enum CodeGenOptions {
     Json,
     SqlAlchemy,
+    SqlAlchemyAsync,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]

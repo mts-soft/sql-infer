@@ -1,5 +1,6 @@
 pub mod json;
 pub mod sqlalchemy;
+pub mod sqlalchemy_async;
 
 use std::error::Error;
 

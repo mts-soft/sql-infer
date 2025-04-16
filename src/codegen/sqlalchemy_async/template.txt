@@ -1,0 +1,39 @@
+from __future__ import annotations
+
+from collections.abc import Generator
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, ForwardRef
+
+from sqlalchemy import text
+
+if TYPE_CHECKING:
+    from datetime import datetime, timedelta, date
+    from decimal import Decimal
+    
+    from typing import Any
+
+    from sqlalchemy.ext.asyncio import AsyncConnection
+
+Json = (
+    str
+    | bool
+    | int
+    | float
+    | dict[str, ForwardRef("Json")]
+    | list[ForwardRef("Json")]
+    | None
+)
+
+@dataclass
+class DbOutput[T]:
+    inner: Generator[T]
+
+    def first(self) -> T | None:
+        """Get the first result if available."""
+        try:
+            return self.inner.__next__()
+        except BaseException:
+            return None
+
+    def all(self) -> Generator[T]:
+        return self.inner
