@@ -3,7 +3,7 @@ name: Build & Release
 on:
   push:
     tags:
-      - "python-package"
+      - "v*.*.*"
 
 jobs:
   build-binaries:
