@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "sql-infer"
+version = "0.8.0"
+description = "SQL Infer Python Wrapper"
+authors = ["jnlt3 <dsekercioglu2003@gmail.com>"]
+packages = [
+    { include = "sql_infer", from = "src" },
+    { include = "bin", to = "sql_infer" },
+]
+
+
+[tool.poetry.scripts]
+sql-infer = "sql_infer.main:run"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
