@@ -1,0 +1,24 @@
+[package]
+name = "sql-infer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-std = "1.13.0"
+chrono = { version = "0.4.39", features = ["serde"] }
+clap = { version = "4.5.30", features = ["derive"] }
+dotenvy = "0.15.7"
+regex = "1.11.1"
+serde = { version = "1.0.218", features = ["derive"] }
+serde_json = "1.0.139"
+sqlparser = "0.54.0"
+
+sqlx = { version = "0.8.2", features = [
+    "postgres",
+    "runtime-async-std",
+    "tls-native-tls",
+    "time",
+] }
+toml = "0.8.20"
+tracing = "0.1.41"
+tracing-subscriber = "0.3.19"

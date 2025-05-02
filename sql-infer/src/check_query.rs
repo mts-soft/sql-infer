@@ -85,6 +85,12 @@ pub enum SqlType {
     VarChar {
         length: Option<u32>,
     },
+    Bit {
+        length: Option<u32>,
+    },
+    VarBit {
+        length: Option<u32>,
+    },
     Text,
     // Json types
     Json,
@@ -161,6 +167,11 @@ impl Display for SqlType {
             SqlType::Jsonb => write!(f, "jsonb"),
             SqlType::Float4 => write!(f, "f32"),
             SqlType::Float8 => write!(f, "f64"),
+            SqlType::Bit { length } => write!(f, "bit({})", length.unwrap_or(1)),
+            SqlType::VarBit {
+                length: Some(length),
+            } => write!(f, "varbit({length})"),
+            SqlType::VarBit { length: None } => write!(f, "varbit"),
         }
     }
 }
@@ -185,6 +196,8 @@ impl SqlType {
             "DATE" => Self::Date,
             "CHAR" => Self::Char { length: None },
             "VARCHAR" => Self::VarChar { length: None },
+            "BIT" => Self::Char { length: None },
+            "VARBIT" => Self::VarChar { length: None },
             "TEXT" => Self::Text,
             "JSON" => Self::Json,
             "JSONB" => Self::Json,

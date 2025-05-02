@@ -81,6 +81,21 @@ pub struct SqlInferOptions {
     pub experimental_features: ExperimentalFeatures,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "kebab-case")]
+#[must_use]
+pub struct SqlInferSubOptions {
+    pub path: QueryPath,
+    pub target: Option<String>,
+    pub mode: Option<CodeGenOptions>,
+    pub experimental_features: Option<ExperimentalFeatures>,
+}
+
+pub enum SqlInferOptionsEnum {
+    Standard(SqlInferConfig),
+    SubOptions(Vec<SqlInferSubOptions>),
+}
+
 impl SqlInferOptions {
     pub fn into_config(self) -> Result<SqlInferConfig, Box<dyn Error>> {
         dotenv()?;

@@ -47,9 +47,9 @@ fn to_py_input_type(item: &QueryItem) -> String {
         | SqlType::Text
         | SqlType::Json
         | SqlType::Jsonb => "str",
-
         SqlType::Float4 | SqlType::Float8 => "float",
         SqlType::Interval => "timedelta",
+        SqlType::Bit { .. } | SqlType::VarBit { .. } => "str",
     }
     .to_owned();
     match item.nullable {
@@ -71,7 +71,7 @@ fn to_py_output_type(item: &QueryItem) -> String {
 }
 
 fn query_to_sql_alchemy(fn_name: &str, query_fn: &QueryFn) -> Result<String, Box<dyn Error>> {
-    let mut params = vec!["conn: AsyncConnection".to_owned()];
+    let mut params = vec!["conn: Connection".to_owned()];
     let mut binds = vec![];
 
     for query_value in &query_fn.inputs {
@@ -96,7 +96,7 @@ fn query_to_sql_alchemy(fn_name: &str, query_fn: &QueryFn) -> Result<String, Box
     };
 
     let in_types = params.join(", ");
-    let function_signature = format!("async def {fn_name}({in_types}) -> {out_types}:");
+    let function_signature = format!("def {fn_name}({in_types}) -> {out_types}:");
 
     let bind_text = match binds.len() {
         0 => "".to_string(),
@@ -104,7 +104,7 @@ fn query_to_sql_alchemy(fn_name: &str, query_fn: &QueryFn) -> Result<String, Box
     };
 
     let mut function_content = format!(
-        "    result = await conn.execute(text(\"\"\"{}\"\"\"), {})\n",
+        "    result = conn.execute(text(\"\"\"{}\"\"\"), {})\n",
         query_fn.query, bind_text
     );
     if !outs.is_empty() {
@@ -117,26 +117,26 @@ fn query_to_sql_alchemy(fn_name: &str, query_fn: &QueryFn) -> Result<String, Box
     ))
 }
 
-pub struct SqlAlchemyAsyncCodeGen {
+pub struct SqlAlchemyCodeGen {
     queries: BTreeMap<String, QueryFn>,
 }
 
-impl SqlAlchemyAsyncCodeGen {
+impl SqlAlchemyCodeGen {
     pub fn new() -> Self {
-        SqlAlchemyAsyncCodeGen {
+        SqlAlchemyCodeGen {
             queries: BTreeMap::new(),
         }
     }
 }
 
-impl CodeGen for SqlAlchemyAsyncCodeGen {
+impl CodeGen for SqlAlchemyCodeGen {
     fn push(&mut self, file_name: &str, query: QueryFn) -> Result<(), Box<dyn Error>> {
         self.queries.insert(file_name.to_string(), query);
         Ok(())
     }
 
     fn finalize(&self, _: &FeatureSet) -> Result<String, Box<dyn Error>> {
-        let mut code = include_str!("./sqlalchemy_async/template.txt").to_string();
+        let mut code = include_str!("./sqlalchemy/template.txt").to_string();
         for (file_name, query) in &self.queries {
             let func = query_to_sql_alchemy(file_name, query)?;
             code.push_str(&func);

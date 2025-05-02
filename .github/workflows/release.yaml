@@ -1,0 +1,92 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - "python-package"
+
+jobs:
+  build-binaries:
+    name: Build CLI Binaries
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            bin_name: sql-infer-linux
+          - os: macos-latest
+            platform: macos
+            bin_name: sql-infer-macos
+          - os: windows-latest
+            platform: windows
+            bin_name: sql-infer-win.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Build CLI
+        run: cargo build --release
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: cli-${{ matrix.platform }}
+          path: target/release/${{ matrix.bin_name }}
+
+  package-wheel:
+    name: Package & Release Wheel
+    needs: build-binaries
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # 1. Fetch each binary and stage into your package dir
+      - name: Download Linux binary
+        uses: actions/download-artifact@v3
+        with:
+          name: sql-infer-linux
+          path: src/sql-infer-py/bin/
+
+      - name: Download macOS binary
+        uses: actions/download-artifact@v3
+        with:
+          name: sql-infer-macos
+          path: src/sql-infer-py/bin/
+
+      - name: Download Windows binary
+        uses: actions/download-artifact@v3
+        with:
+          name: sql-infer-win.exe
+          path: src/sql-infer-py/bin/
+
+      - name: Executable permissions
+        run: |
+          chmod +x src/sql-infer-py/bin/*
+
+      # 3. Build your universal wheel
+      - name: Set up Python & Poetry
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install poetry
+
+      - name: Build wheel
+        run: poetry build
+
+      # 4. Publish wheel to GitHub Release
+      - name: Create GitHub Release & upload
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.whl
+          draft: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
