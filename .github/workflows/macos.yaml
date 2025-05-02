@@ -1,0 +1,33 @@
+name: Build & Release macOS Binary
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    name: Build & Publish macOS
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Build Release Binary
+        run: |
+          cargo build --release
+
+      - name: Publish macOS binary to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: target/release/sql-infer
+          draft: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
