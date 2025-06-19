@@ -14,12 +14,24 @@ fn split_query(mut query: &str) -> Vec<&str> {
         query = &query[1..];
     }
     let mut in_quotes = false;
+    let mut in_double_quotes = false;
     let mut last = 0;
     for (idx, char) in query.char_indices() {
+        // TODO: clean up duplicate
         // SQL Quotes are escaped by doubling up so we do not check for backslashes.
         if char == '\'' {
             in_quotes = !in_quotes;
             let end = match in_quotes {
+                true => idx,
+                false => idx + 1,
+            };
+            split_query.push(&query[last..end]);
+            last = end;
+        }
+        // SQL Double quotes are escaped by doubling up so we do not check for backslashes.
+        if char == '\"' {
+            in_double_quotes = !in_double_quotes;
+            let end = match in_double_quotes {
                 true => idx,
                 false => idx + 1,
             };
@@ -32,6 +44,9 @@ fn split_query(mut query: &str) -> Vec<&str> {
 }
 
 pub fn prepare_dbapi2(query: &str) -> Result<PreparedQuery, Box<dyn Error>> {
+    /*
+    TODO: Using regex really is not the proper way to parse SQL query identifiers, write a proper tokenizer or use sqlparse.
+     */
     let mut params = Vec::new();
     let placeholder_pattern = Regex::new(r":([a-z]|[A-Z]|_)([a-z]|[A-Z]|_|[0-9])*")?;
     let split_query = split_query(query);
@@ -46,7 +61,10 @@ pub fn prepare_dbapi2(query: &str) -> Result<PreparedQuery, Box<dyn Error>> {
         for matches in placeholder_pattern.captures_iter(query) {
             let placeholder = matches.get(0).unwrap();
             let start = placeholder.start();
-            if query.get(..start).is_some_and(|slice| slice.ends_with(":")) {
+            if query
+                .get(..start)
+                .is_some_and(|slice| slice.trim().ends_with(":"))
+            {
                 // Two colons is indicative of casting
                 // We do not handle this inside of the regex as the match would include the character prior
                 continue;

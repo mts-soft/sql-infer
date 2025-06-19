@@ -1,6 +1,6 @@
 [package]
 name = "sql-infer"
-version = "0.8.0"
+version = "0.8.1"
 edition = "2024"
 
 [dependencies]
@@ -11,7 +11,7 @@ dotenvy = "0.15.7"
 regex = "1.11.1"
 serde = { version = "1.0.218", features = ["derive"] }
 serde_json = "1.0.139"
-sqlparser = "0.54.0"
+sqlparser = "0.56.0"
 
 sqlx = { version = "0.8.2", features = [
     "postgres",
