@@ -54,7 +54,7 @@ fn to_py_input_type(item: &QueryItem) -> String {
     }
     .to_owned();
     match item.nullable {
-        Nullability::True | Nullability::Unknown => format!("{} | None", py_type),
+        Nullability::True | Nullability::Unknown => format!("{py_type} | None"),
         Nullability::False => py_type,
     }
 }
@@ -66,7 +66,7 @@ fn to_py_output_type(item: &QueryItem) -> String {
     }
     .to_owned();
     match item.nullable {
-        Nullability::True | Nullability::Unknown => format!("{} | None", py_type),
+        Nullability::True | Nullability::Unknown => format!("{py_type} | None"),
         Nullability::False => py_type,
     }
 }
