@@ -68,15 +68,24 @@ fn identify_table(table: &TableWithJoins) -> Result<Vec<DbTable>, ParserError> {
     let mut tables = relation_tables(&table.relation)?;
     for join in &table.joins {
         let (left, right) = match &join.join_operator {
-            JoinOperator::Inner(_) => (false, false),
-            JoinOperator::LeftOuter(_) => (false, true),
-            JoinOperator::RightOuter(_) => (true, false),
+            JoinOperator::Inner(_) | JoinOperator::Join(_) => (false, false),
+            JoinOperator::LeftOuter(_) | JoinOperator::Left(_) => (false, true),
+            JoinOperator::RightOuter(_) | JoinOperator::Right(_) => (true, false),
             JoinOperator::FullOuter(_) => (true, true),
             JoinOperator::CrossJoin => (true, true),
-            _ => {
+            JoinOperator::Semi(_)
+            | JoinOperator::LeftSemi(_)
+            | JoinOperator::RightSemi(_)
+            | JoinOperator::Anti(_)
+            | JoinOperator::LeftAnti(_)
+            | JoinOperator::RightAnti(_)
+            | JoinOperator::CrossApply
+            | JoinOperator::OuterApply
+            | JoinOperator::StraightJoin(_)
+            | JoinOperator::AsOf { .. } => {
                 return Err(ParserError::UnsupportedStatement {
                     statement: table.to_string(),
-                })
+                });
             }
         };
         let mut right_tables = relation_tables(&join.relation)?;
@@ -143,13 +152,13 @@ fn find_field(
                 _ => {
                     return Err(ParserError::UnsupportedStatement {
                         statement: expr.to_string(),
-                    })
+                    });
                 }
             },
             SelectItem::ExprWithAlias { .. } => {
                 return Err(ParserError::UnsupportedStatement {
                     statement: item.to_string(),
-                })
+                });
             }
             SelectItem::QualifiedWildcard(_, _) => return Err(ParserError::WildcardsNotSupported),
             SelectItem::Wildcard(_) => return Err(ParserError::WildcardsNotSupported),
@@ -206,7 +215,7 @@ pub fn find_source(
                     _ => {
                         return Err(ParserError::UnsupportedStatement {
                             statement: query.to_string(),
-                        })
+                        });
                     }
                 }
             }
@@ -218,7 +227,7 @@ pub fn find_source(
                     TableObject::TableFunction(_) => {
                         return Err(ParserError::UnsupportedQueryElement {
                             name: insert.table.to_string(),
-                        })
+                        });
                     }
                 };
                 if let Some(returning) = &insert.returning {
@@ -246,7 +255,7 @@ pub fn find_source(
             _ => {
                 return Err(ParserError::UnsupportedStatement {
                     statement: token.to_string(),
-                })
+                });
             }
         }
     }
