@@ -32,7 +32,7 @@ impl fmt::Display for CheckerError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             CheckerError::UnrecognizedType { sql_type } => {
-                write!(f, "Unrecognized SQL Type {}", sql_type)
+                write!(f, "Unrecognized SQL Type {sql_type}")
             }
         }
     }
@@ -124,7 +124,7 @@ impl Display for SqlType {
                 } else {
                     "???"
                 };
-                write!(f, "decimal({}, {})", precision, precision_radix)
+                write!(f, "decimal({precision}, {precision_radix})")
             }
             SqlType::Timestamp { tz } => write!(
                 f,
