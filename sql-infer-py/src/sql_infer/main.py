@@ -3,8 +3,6 @@ def run():
     import subprocess
     import sys
     import platform
-
-    print(platform.system())
     bin_name = "sql-infer-linux"
     if platform.system() == "Windows":
         bin_name = "sql-infer-win.exe"
