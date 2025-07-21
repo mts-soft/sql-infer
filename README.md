@@ -2,90 +2,6 @@
 
 Compute input/output types for SQL queries given a database to connect to.
 
-Limitations:
-- Only supports python >= 3.12
-- Supports postgreSQL only, technically MariaDB support is trivially possible but there is no motivation to implement it.
-- A single configuration file will only support a single output file making codebases potentially harder to organize.
-- There is no support for bulk operations.
-- This is a project that has been put together very quickly, there is no proper SQL parsing or input validation. Determining parameters are done via regex. 
-
-## Example Config file
-
-```toml
-path = "<path/to/input/directory>" or ["<path1>", "<path2>"]
-target = "<path/to/output/file>"
-mode = "json" # "sql-alchemy" and "sql-alchemy-async" are alternative options
-
-[experimental-features]
-infer-nullability = true
-precise-output-datatypes = true
-```
-
-## Modes
-
-### `"json"`
-
-Serialize typing information to a JSON file. JSON is always the primarily supported code generation option and will support every feature.
-
-Supported features:
-
-- All
-
-### `"sql-alchemy"`
-
-Generate type-safe SQL Alchemy Core code using the provided typing information.
-
-Supported features:
-
-- Infer nullability
-
-- All
-
-### `"sql-alchemy-async"`
-
-Generate type-safe async SQL Alchemy Core code using the provided typing information.
-
-Supported features:
-
-- Infer nullability
-
-
-## Experimental Features
-
-These features may be removed at any time
-
-### Infer Nullability
-
-Infer whether the output type is nullable or not to the extent possible.
-
-This currently works for queries that only use inner/left/right/cross joins and queries that return a column as is without any modification.
-
-### Precise Output Datatypes
-
-Infer additional information relating to the datatype.
-
-- with/without timezone for Timestamp and Time
-- Char and VarChar lengths
-- Decimal precision and precision radix
-
-This currently works for queries that only use inner/left/right/cross joins and queries that return a column as is without any modification.
-
-
-## Project Structure 
-
-- Below is the recommended project structure, it is also possible to have sub directories within queries and add them to the searched `path` in `sql-infer.toml`.
-```
-project
-|   src
-|   |  ...
-|   |  queries.py
-|   queries
-|   | somequery.sql
-|   | someotherquery.sql
-|   sql-infer.toml
-```
-
-- Upon running `sql-infer generate` sql-infer will look for `sql-infer.toml` within the current directory, look for the `DATABASE_URL` environment variable and attempt to connect to the database. Keep in mind that there is very minimal sanitization being done in `sql-infer` and it should strictly be used with trusted input and in a trusted environment.
 
 ## Why was sql-infer made?
 We were originally using SQL Alchemy ORM within the organization as minimal research suggests it to be the go-to. We had a couple problems with it:
@@ -98,6 +14,41 @@ We were originally using SQL Alchemy ORM within the organization as minimal rese
 - Due to the limitations with python type checking, sql-infer generates code to be output into an existing file.
 - The experimental `infer-nullability` and `precise-output-data-types` are already used within internal codebases. THey are called experimental because it is possible to have them produce incorrect results by confusing the very naive system that uses string equality to determine the source table for each column.
 
+
+## Known Limitations:
+- Only supports python >= 3.12
+- Supports postgreSQL only, technically MariaDB support is trivially possible but there is no motivation to implement it.
+- A single configuration file will only support a single output file making codebases potentially harder to organize.
+- There is no support for bulk operations.
+- This is a project that has been put together very quickly, there is no proper SQL parsing or input validation. Determining parameters are done via regex. 
+
+## Example Config file
+
+```toml
+path = ["<path1>", "<path2>", "<path3>"] # Keep in mind sql-infer does not recurse by default
+target = "<path/to/output/file>"
+mode = "json" # "sql-alchemy" and "sql-alchemy-async" are alternative options
+
+[experimental-features]
+infer-nullability = true
+precise-output-datatypes = true
+```
+
+## Project Structure 
+
+- Below is the recommended project structure, it is also possible to have sub directories within queries and add them to the searched `path` in `sql-infer.toml`.
+```
+project
+|   src
+|   |   ...
+|   |   queries.py
+|   queries
+|   |   somequery.sql
+|   |   someotherquery.sql
+|   sql-infer.toml
+```
+
+- Upon running `sql-infer generate` sql-infer will look for `sql-infer.toml` within the current directory, look for the `DATABASE_URL` environment variable and attempt to connect to the database. Keep in mind that there is very minimal sanitization being done in `sql-infer` and it should strictly be used with trusted input and in a trusted environment.
 
 ## Example sql-infer usage
 - It is recommended to have sql-infer output be formatted if `sql-alchemy` or `sql-alchemy-async` is being used. If the `json` output format is being used, you are probably already making your own code generation on top if it.
@@ -139,3 +90,53 @@ class DbOutput[T]:
     def all(self) -> Generator[T]:
         return self.inner
 ```
+
+
+
+## Modes
+
+### `"json"`
+
+Serialize typing information to a JSON file. JSON is always the primarily supported code generation option and will support every feature.
+
+Supported features:
+
+- All
+
+### `"sql-alchemy"`
+
+Generate type-safe SQL Alchemy Core code using the provided typing information.
+
+Supported features:
+
+- Infer nullability
+
+### `"sql-alchemy-async"`
+
+Generate type-safe async SQL Alchemy Core code using the provided typing information.
+
+Supported features:
+
+- Infer nullability
+
+
+## Experimental Features
+
+These features may be removed at any time
+
+### Infer Nullability
+
+Infer whether the output type is nullable or not to the extent possible.
+
+This currently works for queries that only use inner/left/right/cross joins and queries that return a column as is without any modification.
+
+### Precise Output Datatypes
+
+Infer additional information relating to the datatype.
+
+- with/without timezone for Timestamp and Time
+- Char and VarChar lengths
+- Decimal precision and precision radix
+
+This currently works for queries that only use inner/left/right/cross joins and queries that return a column as is without any modification.
+
