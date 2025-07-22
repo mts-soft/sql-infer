@@ -2,16 +2,16 @@ pub mod datatypes;
 pub mod nullability;
 
 use serde::{Deserialize, Serialize};
-use sqlx::{Column, Either, Pool, Postgres, Statement, TypeInfo};
+use sqlx::{Either, Pool, Postgres, Statement, TypeInfo};
 use sqlx::{Executor, query_as};
 use std::fmt::Display;
 use std::{error::Error, fmt};
 
-use crate::parser::{DbTable, find_source, to_ast};
+use crate::parser::{Column, find_fields, to_ast};
 use tracing::warn;
 
 pub trait UseInformationSchema {
-    fn apply(&self, schema: &InformationSchema, table: &mut DbTable, column: &mut QueryItem);
+    fn apply(&self, schema: Option<&InformationSchema>, source: &Column, column: &mut QueryItem);
 }
 
 pub struct Passes {
@@ -212,6 +212,7 @@ impl SqlType {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InformationSchema {
     pub is_nullable: Option<bool>,
     pub character_maximum_length: Option<i32>,
@@ -221,12 +222,11 @@ pub struct InformationSchema {
     pub column_default: Option<String>,
 }
 
-pub(crate) async fn update_with_info(
+async fn get_information_schema(
     pool: &Pool<Postgres>,
-    table: &mut DbTable,
-    item: &mut QueryItem,
-    passes: &Passes,
-) -> Result<(), Box<dyn Error>> {
+    table: &str,
+    column: &str,
+) -> Result<Option<InformationSchema>, Box<dyn Error>> {
     let query = query_as!(
         InformationSchema,
         "select
@@ -241,15 +241,50 @@ from
 where
     table_name = $1
     and column_name = $2;",
-        table.name,
-        item.name,
+        table,
+        column,
     );
-    let res = query.fetch_optional(pool).await?;
-    let Some(information_schema) = res else {
-        return Ok(());
-    };
+    Ok(query.fetch_optional(pool).await?)
+}
+
+async fn get_column_information_schema(
+    pool: &Pool<Postgres>,
+    source: &Column,
+) -> Result<Option<InformationSchema>, Box<dyn Error>> {
+    match source {
+        Column::DependsOn { table, column } => {
+            return get_information_schema(pool, table, column).await;
+        }
+        Column::Maybe { column } => {
+            return Box::pin(get_column_information_schema(pool, column)).await;
+        }
+        Column::Either { left, right } => {
+            let future = Box::pin(async {
+                let left = get_column_information_schema(pool, left).await?;
+                let right = get_column_information_schema(pool, right).await?;
+                Ok::<_, Box<dyn Error>>((left, right))
+            });
+            let (left, right) = future.await?;
+            Ok(match (left, right) {
+                (None, None) => None,
+                (None, Some(right)) => Some(right),
+                (Some(left), None) => Some(left),
+                (Some(_), Some(_)) => None,
+            })
+        }
+        Column::Unknown => Ok(None),
+    }
+}
+
+pub(crate) async fn update_with_info(
+    pool: &Pool<Postgres>,
+    source: &Column,
+    item: &mut QueryItem,
+    passes: &Passes,
+) -> Result<(), Box<dyn Error>> {
+    let information_schema = get_column_information_schema(pool, source).await?;
     for pass in &passes.information_schema {
-        pass.apply(&information_schema, table, item);
+        pass.apply(information_schema.as_ref(), source, item);
     }
     Ok(())
 }
@@ -260,19 +295,17 @@ pub(crate) async fn apply_passes(
     output_types: &mut [QueryItem],
     passes: &Passes,
 ) -> Result<(), Box<dyn Error>> {
-    let ast = to_ast(query)?;
+    let statement = to_ast(query)?;
+    let statement = statement.first().ok_or("Empty query")?;
     let mut errors: Vec<String> = vec![];
+
+    let fields = find_fields(statement)?;
     for output in output_types.iter_mut() {
-        match find_source(&ast, &output.name) {
-            Ok(Some(source)) => {
-                let Some(mut table) = source.table else {
-                    warn!("No source table found for column {}", &output.name);
-                    continue;
-                };
-                update_with_info(pool, &mut table, output, passes).await?;
+        match fields.get(&output.name) {
+            Some(column) => {
+                update_with_info(pool, column, output, passes).await?;
             }
-            Ok(None) => errors.push("No Sources Found".into()),
-            Err(err) => errors.push(err.to_string()),
+            None => errors.push(format!("not provided with info for {}", output.name)),
         }
     }
     for error in errors {
@@ -287,6 +320,7 @@ pub(crate) async fn check_statement(
     query: &str,
     passes: &Passes,
 ) -> Result<QueryTypes, Box<dyn Error>> {
+    use sqlx::Column;
     let prepared = pool.prepare(query).await?;
     let mut result_types = Vec::with_capacity(prepared.columns().len());
     for column in prepared.columns() {
