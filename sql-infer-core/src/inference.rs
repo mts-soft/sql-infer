@@ -1,26 +1,34 @@
-use sqlx::Executor;
-use sqlx::{Column, Either, Pool, Postgres, Statement, TypeInfo, query};
+pub mod datatypes;
+pub mod nullability;
+
+use serde::{Deserialize, Serialize};
+use sqlx::{Column, Either, Pool, Postgres, Statement, TypeInfo};
+use sqlx::{Executor, query_as};
 use std::fmt::Display;
 use std::{error::Error, fmt};
+
+use crate::parser::{DbTable, find_source, to_ast};
 use tracing::warn;
 
-use crate::config::FeatureSet;
-use crate::parser::{DbTable, find_source, to_ast};
-use crate::query_converter::prepare_dbapi2;
-use serde::{Deserialize, Serialize};
+pub trait UseInformationSchema {
+    fn apply(&self, schema: &InformationSchema, table: &mut DbTable, column: &mut QueryItem);
+}
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Passes {
+    pub information_schema: Vec<Box<dyn UseInformationSchema>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SqlQuery {
+    pub query: String,
+    pub parameters: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct QueryItem {
     pub name: String,
     pub sql_type: SqlType,
     pub nullable: Nullability,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct QueryFn {
-    pub query: String,
-    pub inputs: Vec<QueryItem>,
-    pub outputs: Vec<QueryItem>,
 }
 
 #[derive(Debug, Clone)]
@@ -40,20 +48,20 @@ impl fmt::Display for CheckerError {
 
 impl Error for CheckerError {}
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Nullability {
     True,
     False,
     Unknown,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct QueryTypes {
     pub input: Box<[QueryItem]>,
     pub output: Box<[QueryItem]>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SqlType {
     Bool,
     // Integer Types
@@ -103,7 +111,7 @@ pub enum SqlType {
 impl Display for SqlType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SqlType::Bool => write!(f, "boolean"),
+            SqlType::Bool => write!(f, "bool"),
             SqlType::Int2 => write!(f, "i16"),
             SqlType::Int4 => write!(f, "i32"),
             SqlType::Int8 => write!(f, "i64"),
@@ -113,19 +121,12 @@ impl Display for SqlType {
             SqlType::Decimal {
                 precision,
                 precision_radix,
-            } => {
-                let precision = if let Some(precision) = precision {
-                    &format!("{precision}")
-                } else {
-                    "???"
-                };
-                let precision_radix = if let Some(precision_radix) = precision_radix {
-                    &format!("{precision_radix}")
-                } else {
-                    "???"
-                };
-                write!(f, "decimal({precision}, {precision_radix})")
-            }
+            } => match precision.zip(precision_radix.as_ref()) {
+                Some((precision, precision_radix)) => {
+                    write!(f, "decimal({precision}, {precision_radix})")
+                }
+                None => write!(f, "decimal"),
+            },
             SqlType::Timestamp { tz } => write!(
                 f,
                 "timestamp {}",
@@ -211,74 +212,64 @@ impl SqlType {
     }
 }
 
-pub async fn update_with_info(
+pub struct InformationSchema {
+    pub is_nullable: Option<bool>,
+    pub character_maximum_length: Option<i32>,
+    pub numeric_precision: Option<i32>,
+    pub numeric_precision_radix: Option<i32>,
+    pub numeric_scale: Option<i32>,
+    pub column_default: Option<String>,
+}
+
+pub(crate) async fn update_with_info(
     pool: &Pool<Postgres>,
-    table: &DbTable,
+    table: &mut DbTable,
     item: &mut QueryItem,
-    features: &FeatureSet,
+    passes: &Passes,
 ) -> Result<(), Box<dyn Error>> {
-    let query = query!(
-        "select is_nullable, character_maximum_length, numeric_precision, numeric_precision_radix from INFORMATION_SCHEMA.COLUMNS where table_name = $1 and column_name = $2;",
+    let query = query_as!(
+        InformationSchema,
+        "select
+    (is_nullable = 'YES') as is_nullable,
+    character_maximum_length,
+    numeric_precision,
+    numeric_precision_radix,
+    numeric_scale,
+    column_default
+from
+    INFORMATION_SCHEMA.COLUMNS
+where
+    table_name = $1
+    and column_name = $2;",
         table.name,
         item.name,
     );
     let res = query.fetch_optional(pool).await?;
-    let Some(column) = res else {
+    let Some(information_schema) = res else {
         return Ok(());
     };
-    if features.precise_output_datatypes {
-        if let SqlType::Char { length } | SqlType::VarChar { length } = &mut item.sql_type {
-            if let Some(character_maximum_length) = column.character_maximum_length {
-                *length = Some(character_maximum_length as u32)
-            }
-        }
-        if let SqlType::Decimal {
-            precision,
-            precision_radix,
-        } = &mut item.sql_type
-        {
-            if let Some((numeric_precision, numeric_precision_radix)) =
-                column.numeric_precision.zip(column.numeric_precision_radix)
-            {
-                *precision = Some(numeric_precision as u32);
-                *precision_radix = Some(numeric_precision_radix as u32);
-            };
-        }
-    }
-
-    if features.infer_nullability {
-        if table.nullable {
-            item.nullable = Nullability::True;
-        } else {
-            item.nullable = match column.is_nullable {
-                Some(nullable) => match &*nullable {
-                    "NO" => Nullability::False,
-                    "YES" => Nullability::True,
-                    _ => Nullability::Unknown,
-                },
-                None => Nullability::Unknown,
-            };
-        }
+    for pass in &passes.information_schema {
+        pass.apply(&information_schema, table, item);
     }
     Ok(())
 }
 
-pub async fn feature_passes(
+pub(crate) async fn apply_passes(
     pool: &Pool<Postgres>,
     query: &str,
     output_types: &mut [QueryItem],
-    features: &FeatureSet,
+    passes: &Passes,
 ) -> Result<(), Box<dyn Error>> {
     let ast = to_ast(query)?;
     let mut errors: Vec<String> = vec![];
     for output in output_types.iter_mut() {
         match find_source(&ast, &output.name) {
             Ok(Some(source)) => {
-                let Some(table) = source.table else {
+                let Some(mut table) = source.table else {
                     warn!("No source table found for column {}", &output.name);
                     continue;
                 };
-                update_with_info(pool, &table, output, features).await?;
+                update_with_info(pool, &mut table, output, passes).await?;
             }
             Ok(None) => errors.push("No Sources Found".into()),
             Err(err) => errors.push(err.to_string()),
@@ -291,49 +282,11 @@ pub async fn feature_passes(
     Ok(())
 }
 
-pub async fn check_query(
+pub(crate) async fn check_statement(
     pool: &Pool<Postgres>,
     query: &str,
-    features: &FeatureSet,
+    passes: &Passes,
 ) -> Result<QueryTypes, Box<dyn Error>> {
-    let mut in_quotes = false;
-    let mut query_buffer = String::with_capacity(query.len());
-
-    let mut input_types = vec![];
-    let mut output_types = None;
-    for char in query.chars() {
-        if char == '"' {
-            in_quotes = !in_quotes
-        }
-        query_buffer.push(char);
-        if !in_quotes && char == ';' {
-            let query = check_statement(pool, &query_buffer, features).await?;
-            query_buffer.clear();
-            for input in query.input {
-                if input_types.contains(&input) {
-                    continue;
-                }
-                input_types.push(input);
-            }
-            output_types = Some(query.output);
-        }
-    }
-    match output_types {
-        Some(output_types) => Ok(QueryTypes {
-            input: input_types.into_boxed_slice(),
-            output: output_types,
-        }),
-        None => check_statement(pool, query, features).await,
-    }
-}
-
-async fn check_statement(
-    pool: &Pool<Postgres>,
-    query: &str,
-    features: &FeatureSet,
-) -> Result<QueryTypes, Box<dyn Error>> {
-    let prepared_query = prepare_dbapi2(query)?;
-    let query = &prepared_query.postgres_query;
     let prepared = pool.prepare(query).await?;
     let mut result_types = Vec::with_capacity(prepared.columns().len());
     for column in prepared.columns() {
@@ -346,7 +299,7 @@ async fn check_statement(
     let mut input_types = vec![];
     match prepared.parameters() {
         Some(Either::Left(parameters)) => {
-            for (param, name) in parameters.iter().zip(prepared_query.params.iter()) {
+            for (param, name) in parameters.iter().zip(parameters.iter()) {
                 input_types.push(QueryItem {
                     name: name.to_string(),
                     sql_type: SqlType::from_str(param.name())?,
@@ -354,37 +307,16 @@ async fn check_statement(
                 });
             }
         }
-        Some(Either::Right(_)) => panic!("Postgres connection should never lead here"),
-        None => panic!("Parameter types were not provided."),
+        /*
+        PgStatement::<'_>::parameters is defined as following:
+        Some(Either::Left(&self.metadata.parameters))
+        */
+        _ => unreachable!(),
     };
-    feature_passes(pool, query, &mut result_types, features).await?;
+    apply_passes(pool, query, &mut result_types, passes).await?;
 
     Ok(QueryTypes {
         input: input_types.into_boxed_slice(),
         output: result_types.into_boxed_slice(),
-    })
-}
-
-pub fn to_query_fn(query: &str, query_types: &QueryTypes) -> Result<QueryFn, Box<dyn Error>> {
-    let mut input_types = Vec::with_capacity(query_types.input.len());
-    for input in &query_types.input {
-        input_types.push(QueryItem {
-            name: input.name.clone(),
-            sql_type: input.sql_type,
-            nullable: input.nullable,
-        });
-    }
-    let mut output_types = Vec::with_capacity(query_types.output.len());
-    for output in &query_types.output {
-        output_types.push(QueryItem {
-            name: output.name.clone(),
-            sql_type: output.sql_type,
-            nullable: output.nullable,
-        });
-    }
-    Ok(QueryFn {
-        query: query.to_string(),
-        inputs: input_types,
-        outputs: output_types,
     })
 }

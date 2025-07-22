@@ -2,8 +2,8 @@ use regex::Regex;
 use std::error::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedQuery {
-    pub postgres_query: String,
+pub struct ParametrizedQuery {
+    pub raw_query: String,
     pub params: Vec<String>,
 }
 
@@ -43,7 +43,7 @@ fn split_query(mut query: &str) -> Vec<&str> {
     split_query
 }
 
-pub fn prepare_dbapi2(query: &str) -> Result<PreparedQuery, Box<dyn Error>> {
+pub fn parse_into_postgres(query: &str) -> Result<ParametrizedQuery, Box<dyn Error>> {
     /*
     TODO: Using regex really is not the proper way to parse SQL query identifiers, write a proper tokenizer or use sqlparse.
      */
@@ -83,8 +83,8 @@ pub fn prepare_dbapi2(query: &str) -> Result<PreparedQuery, Box<dyn Error>> {
         }
         postgres_query += &query[head..];
     }
-    Ok(PreparedQuery {
-        postgres_query,
+    Ok(ParametrizedQuery {
+        raw_query: postgres_query,
         params,
     })
 }

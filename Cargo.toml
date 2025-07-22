@@ -1,5 +1,5 @@
 [workspace]
-members = ["sql-infer"]
+members = ["sql-infer-cli", "sql-infer-core"]
 resolver = "3"
 
 [profile.release]

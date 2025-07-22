@@ -1,0 +1,106 @@
+use std::{env, error::Error, fmt::Display, path::PathBuf};
+
+use dotenvy::dotenv;
+use serde::{Deserialize, Serialize};
+
+const DATABASE_URL: &str = "DATABASE_URL";
+
+#[derive(Debug, Clone)]
+pub enum ConfigError {
+    DbUrlNotFound,
+}
+
+impl Display for ConfigError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConfigError::DbUrlNotFound => write!(
+                f,
+                "Database URL not found, please set the {DATABASE_URL} environment variable."
+            ),
+        }
+    }
+}
+
+impl Error for ConfigError {}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub struct Features {
+    infer_nullability: Option<bool>,
+    precise_output_datatypes: Option<bool>,
+}
+
+impl Features {
+    pub fn nullability(&self) -> bool {
+        self.infer_nullability.unwrap_or(false)
+    }
+
+    pub fn text_length(&self) -> bool {
+        self.precise_output_datatypes.unwrap_or(false)
+    }
+
+    pub fn decimal_precision(&self) -> bool {
+        self.precise_output_datatypes.unwrap_or(false)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CodeGenerator {
+    Json,
+    SqlAlchemy,
+    SqlAlchemyAsync,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CodeGenSource {
+    Single(PathBuf),
+    List(Vec<PathBuf>),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+#[must_use]
+pub struct TomlConfig {
+    path: CodeGenSource,
+    target: PathBuf,
+    mode: CodeGenerator,
+    #[serde(default = "Default::default")]
+    experimental_features: Features,
+}
+
+#[derive(Debug, Clone)]
+pub struct SqlInferConfig {
+    pub source: Vec<PathBuf>,
+    pub target: PathBuf,
+    pub mode: CodeGenerator,
+    pub experimental_features: Features,
+    pub database_url: String,
+}
+
+impl SqlInferConfig {
+    pub fn from_toml_config(config: TomlConfig) -> Result<Self, Box<dyn Error>> {
+        let source = match config.path {
+            CodeGenSource::Single(item) => vec![item],
+            CodeGenSource::List(items) => items,
+        };
+
+        dotenv()?;
+        let mut db_url = None;
+        for (key, value) in env::vars() {
+            if key == DATABASE_URL {
+                db_url = Some(value.to_owned());
+            }
+        }
+
+        let db_url = db_url.ok_or(ConfigError::DbUrlNotFound)?;
+        Ok(Self {
+            source,
+            target: config.target,
+            mode: config.mode,
+            experimental_features: config.experimental_features,
+            database_url: db_url,
+        })
+    }
+}

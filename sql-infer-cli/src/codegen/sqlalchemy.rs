@@ -1,9 +1,8 @@
 use std::{collections::BTreeMap, error::Error};
 
-use crate::{
-    check_query::{Nullability, QueryFn, QueryItem, SqlType},
-    config::FeatureSet,
-};
+use sql_infer_core::inference::{Nullability, QueryItem, SqlType};
+
+use crate::codegen::QueryDefinition;
 
 use super::CodeGen;
 
@@ -47,7 +46,6 @@ fn to_py_input_type(item: &QueryItem) -> String {
         | SqlType::Text
         | SqlType::Json
         | SqlType::Jsonb => "str",
-
         SqlType::Float4 | SqlType::Float8 => "float",
         SqlType::Interval => "timedelta",
         SqlType::Bit { .. } | SqlType::VarBit { .. } => "str",
@@ -71,8 +69,11 @@ fn to_py_output_type(item: &QueryItem) -> String {
     }
 }
 
-fn query_to_sql_alchemy(fn_name: &str, query_fn: &QueryFn) -> Result<String, Box<dyn Error>> {
-    let mut params = vec!["conn: AsyncConnection".to_owned()];
+fn query_to_sql_alchemy(
+    fn_name: &str,
+    query_fn: &QueryDefinition,
+) -> Result<String, Box<dyn Error>> {
+    let mut params = vec!["conn: Connection".to_owned()];
     let mut binds = vec![];
 
     for query_value in &query_fn.inputs {
@@ -97,7 +98,7 @@ fn query_to_sql_alchemy(fn_name: &str, query_fn: &QueryFn) -> Result<String, Box
     };
 
     let in_types = params.join(", ");
-    let function_signature = format!("async def {fn_name}({in_types}) -> {out_types}:");
+    let function_signature = format!("def {fn_name}({in_types}) -> {out_types}:");
 
     let bind_text = match binds.len() {
         0 => "".to_string(),
@@ -105,7 +106,7 @@ fn query_to_sql_alchemy(fn_name: &str, query_fn: &QueryFn) -> Result<String, Box
     };
 
     let mut function_content = format!(
-        "    result = await conn.execute(text(\"\"\"{}\"\"\"), {})\n",
+        "    result = conn.execute(text(\"\"\"{}\"\"\"), {})\n",
         query_fn.query, bind_text
     );
     if !outs.is_empty() {
@@ -118,26 +119,19 @@ fn query_to_sql_alchemy(fn_name: &str, query_fn: &QueryFn) -> Result<String, Box
     ))
 }
 
-pub struct SqlAlchemyAsyncCodeGen {
-    queries: BTreeMap<String, QueryFn>,
+#[derive(Default)]
+pub struct SqlAlchemyCodeGen {
+    queries: BTreeMap<String, QueryDefinition>,
 }
 
-impl SqlAlchemyAsyncCodeGen {
-    pub fn new() -> Self {
-        SqlAlchemyAsyncCodeGen {
-            queries: BTreeMap::new(),
-        }
-    }
-}
-
-impl CodeGen for SqlAlchemyAsyncCodeGen {
-    fn push(&mut self, file_name: &str, query: QueryFn) -> Result<(), Box<dyn Error>> {
+impl CodeGen for SqlAlchemyCodeGen {
+    fn push(&mut self, file_name: &str, query: QueryDefinition) -> Result<(), Box<dyn Error>> {
         self.queries.insert(file_name.to_string(), query);
         Ok(())
     }
 
-    fn finalize(&self, _: &FeatureSet) -> Result<String, Box<dyn Error>> {
-        let mut code = include_str!("./sqlalchemy_async/template.txt").to_string();
+    fn finalize(&self) -> Result<String, Box<dyn Error>> {
+        let mut code = include_str!("./sqlalchemy/template.txt").to_string();
         for (file_name, query) in &self.queries {
             let func = query_to_sql_alchemy(file_name, query)?;
             code.push_str(&func);

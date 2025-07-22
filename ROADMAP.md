@@ -9,3 +9,6 @@ In no particular order:
 - [ ] Support table aliases (e.g. `select u.id from users u` will currently break nullability inference)
 - [ ] Better determine scope
     - sql-infer can theoretically support some amount of templating in a sound manner. This could be as simple as parametrizing `asc`/`desc` for `order by` or could go as far as parametrizing column names and exhausting all possibilities to ensure safety when there are multiple.
+- [ ] No panic
+- [ ] Descriptive error messages
+- [ ] Remove serde dependency on sql-infer-core
