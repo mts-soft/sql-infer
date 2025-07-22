@@ -28,6 +28,7 @@ jobs:
         run: |
           cargo build --release --bin sql-infer-cli
       - name: Mark binary as executable
+        run: |
           chmod +x target/release/sql-infer-cli
 
       - name: Publish macOS binary to GitHub Release
