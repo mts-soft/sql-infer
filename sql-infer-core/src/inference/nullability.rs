@@ -15,7 +15,7 @@ impl UseInformationSchema for ColumnNullability {
         let Some(schema) = schema else {
             return;
         };
-        if column_table_is_nullable(source) == Nullability::True {
+        if column_is_nullable(source) == Nullability::True {
             column.nullable = Nullability::True;
             return;
         }
@@ -27,13 +27,13 @@ impl UseInformationSchema for ColumnNullability {
     }
 }
 
-fn column_table_is_nullable(col: &Column) -> Nullability {
+fn column_is_nullable(col: &Column) -> Nullability {
     match col {
         Column::DependsOn { .. } => Nullability::False,
         Column::Maybe { .. } => Nullability::True,
-        Column::Either { left, right } => match column_table_is_nullable(left) {
+        Column::Either { left, right } => match column_is_nullable(left) {
             Nullability::True => Nullability::True,
-            Nullability::False => column_table_is_nullable(right),
+            Nullability::False => column_is_nullable(right),
             Nullability::Unknown => Nullability::Unknown,
         },
         Column::Unknown => Nullability::Unknown,

@@ -250,13 +250,15 @@ where
 async fn get_column_information_schema(
     pool: &Pool<Postgres>,
     source: &Column,
-) -> Result<Option<InformationSchema>, Box<dyn Error>> {
+) -> Result<(Column, Option<InformationSchema>), Box<dyn Error>> {
     match source {
-        Column::DependsOn { table, column } => {
-            return get_information_schema(pool, table, column).await;
-        }
+        Column::DependsOn { table, column } => Ok((
+            source.clone(),
+            get_information_schema(pool, table, column).await?,
+        )),
         Column::Maybe { column } => {
-            return Box::pin(get_column_information_schema(pool, column)).await;
+            let (column, schema) = Box::pin(get_column_information_schema(pool, column)).await?;
+            Ok((column.maybe(), schema))
         }
         Column::Either { left, right } => {
             let future = Box::pin(async {
@@ -264,15 +266,15 @@ async fn get_column_information_schema(
                 let right = get_column_information_schema(pool, right).await?;
                 Ok::<_, Box<dyn Error>>((left, right))
             });
-            let (left, right) = future.await?;
+            let ((left_col, left), (right_col, right)) = future.await?;
             Ok(match (left, right) {
-                (None, None) => None,
-                (None, Some(right)) => Some(right),
-                (Some(left), None) => Some(left),
-                (Some(_), Some(_)) => None,
+                (None, None) => (source.clone(), None),
+                (None, Some(right)) => (right_col, Some(right)),
+                (Some(left), None) => (left_col, Some(left)),
+                (Some(_), Some(_)) => (source.clone(), None),
             })
         }
-        Column::Unknown => Ok(None),
+        Column::Unknown => Ok((source.clone(), None)),
     }
 }
 
@@ -282,9 +284,9 @@ pub(crate) async fn update_with_info(
     item: &mut QueryItem,
     passes: &Passes,
 ) -> Result<(), Box<dyn Error>> {
-    let information_schema = get_column_information_schema(pool, source).await?;
+    let (source, information_schema) = get_column_information_schema(pool, source).await?;
     for pass in &passes.information_schema {
-        pass.apply(information_schema.as_ref(), source, item);
+        pass.apply(information_schema.as_ref(), &source, item);
     }
     Ok(())
 }
