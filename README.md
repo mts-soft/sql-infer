@@ -1,6 +1,6 @@
 # sql-infer
 
-Compute input/output types for SQL queries given a database to connect to.
+Type inference system for PostgreSQL built on SQLx.
 
 
 ## Why was sql-infer made?
@@ -12,8 +12,7 @@ We were originally using SQL Alchemy ORM within the organization as minimal rese
 ## How does it work?
 - SQL Infer uses `sqlx` as this was initially the easiest way to get parameter & column types for a given query however this is actually relatively simple to accomplish without `sqlx` as well. `sqlx` remains in the repository thus `sql-infer` can infer all types that default `sqlx` can without any extra work.
 - Due to the limitations with python type checking, sql-infer generates code to be output into an existing file.
-- The experimental `infer-nullability` and `precise-output-data-types` are already used within internal codebases. THey are called experimental because it is possible to have them produce incorrect results by confusing the very naive system that uses string equality to determine the source table for each column.
-
+- SQL Infer also supports additional features such as figuring out whether a column is nullable or not.
 
 ## Known Limitations:
 - Only supports python >= 3.12
@@ -122,8 +121,6 @@ Supported features:
 
 ## Experimental Features
 
-These features may be removed at any time
-
 ### Infer Nullability
 
 Infer whether the output type is nullable or not to the extent possible.
@@ -139,4 +136,3 @@ Infer additional information relating to the datatype.
 - Decimal precision and precision radix
 
 This currently works for queries that only use inner/left/right/cross joins and queries that return a column as is without any modification.
-

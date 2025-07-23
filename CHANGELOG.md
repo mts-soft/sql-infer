@@ -1,11 +1,8 @@
-# Unreleased
-
-## BREAKING CHANGES
-- Empty files will now generate empty queries
+# 0.10.0
 
 ## Added
 - Support for select items with aliases (e.g. `select x as y from z` )
-- Partial support for ambiguous select items (e.g. `select x from y join z on <cond>` )
+- Support for ambiguous select items (e.g. `select x from y join z on <cond>` )
 
 ## Internal changes
 - Major improvements to parsing logic to allow for more flexibility moving forward
