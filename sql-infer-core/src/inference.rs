@@ -4,6 +4,8 @@ pub mod nullability;
 use serde::{Deserialize, Serialize};
 use sqlx::{Either, Pool, Postgres, Statement, TypeInfo};
 use sqlx::{Executor, query_as};
+use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::{error::Error, fmt};
 
@@ -11,7 +13,12 @@ use crate::parser::{Column, find_fields, to_ast};
 use tracing::warn;
 
 pub trait UseInformationSchema {
-    fn apply(&self, schema: Option<&InformationSchema>, source: &Column, column: &mut QueryItem);
+    fn apply(
+        &self,
+        schemas: &HashMap<Column, InformationSchema>,
+        source: &Column,
+        column: &mut QueryItem,
+    );
 }
 
 pub struct Passes {
@@ -178,6 +185,48 @@ impl Display for SqlType {
 }
 
 impl SqlType {
+    pub fn is_numeric(&self) -> bool {
+        match self {
+            SqlType::Bool => false,
+            SqlType::Int2
+            | SqlType::Int4
+            | SqlType::Int8
+            | SqlType::SmallSerial
+            | SqlType::Serial
+            | SqlType::BigSerial
+            | SqlType::Decimal { .. }
+            | SqlType::Float4
+            | SqlType::Float8 => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_text(&self) -> bool {
+        match self {
+            SqlType::Char { .. } | SqlType::VarChar { .. } | SqlType::Text => true,
+            _ => false,
+        }
+    }
+
+    fn numeric_rank(&self) -> Option<u8> {
+        // https://www.postgresql.org/docs/current/functions-math.html
+        Some(match self {
+            SqlType::Int2 | SqlType::SmallSerial => 0,
+            SqlType::Int4 | SqlType::Serial => 1,
+            SqlType::Int8 | SqlType::BigSerial => 2,
+            SqlType::Decimal { .. } => 3,
+            SqlType::Float4 => 4,
+            SqlType::Float8 => 5,
+            _ => return None,
+        })
+    }
+
+    pub fn numeric_compare(&self, other: &Self) -> Option<Ordering> {
+        self.numeric_rank()
+            .zip(other.numeric_rank())
+            .map(|(left, right)| left.cmp(&right))
+    }
+
     fn from_str(sql_type: &str) -> Result<Self, Box<dyn Error>> {
         Ok(match sql_type {
             "BOOL" => Self::Bool,
@@ -247,7 +296,45 @@ where
     Ok(query.fetch_optional(pool).await?)
 }
 
-async fn get_column_information_schema(
+pub async fn get_all_info_schema(
+    pool: &Pool<Postgres>,
+    source: &Column,
+    map: &mut HashMap<Column, InformationSchema>,
+) -> Result<Option<InformationSchema>, Box<dyn Error>> {
+    let schema = match source {
+        Column::DependsOn { table, column } => get_information_schema(pool, table, column).await?,
+        Column::Maybe { column } => Box::pin(get_all_info_schema(pool, column, map)).await?,
+        Column::Either { left, right } => {
+            let future = Box::pin(async {
+                let left = get_all_info_schema(pool, left, map).await?;
+                let right = get_all_info_schema(pool, right, map).await?;
+                Ok::<_, Box<dyn Error>>((left, right))
+            });
+            let (left, right) = future.await?;
+            let schema = match (left, right) {
+                (None, None) => None,
+                (None, Some(right)) => Some(right),
+                (Some(left), None) => Some(left),
+                (Some(_), Some(_)) => None,
+            };
+            schema
+        }
+        Column::Unknown { .. } => None,
+        Column::Cast { source, .. } => Box::pin(get_all_info_schema(pool, source, map)).await?,
+        Column::BinaryOp { left, right, .. } => {
+            Box::pin(get_all_info_schema(pool, left, map)).await?;
+            Box::pin(get_all_info_schema(pool, right, map)).await?;
+            None
+        }
+        Column::Value(_) => None,
+    };
+    if let Some(schema) = &schema {
+        map.insert(source.clone(), schema.clone());
+    }
+    Ok(schema)
+}
+
+pub async fn get_column_information_schema(
     pool: &Pool<Postgres>,
     source: &Column,
 ) -> Result<(Column, Option<InformationSchema>), Box<dyn Error>> {
@@ -274,7 +361,13 @@ async fn get_column_information_schema(
                 (Some(_), Some(_)) => (source.clone(), None),
             })
         }
-        Column::Unknown => Ok((source.clone(), None)),
+        Column::Unknown { .. } => Ok((source.clone(), None)),
+        Column::Cast { source, data_type } => {
+            let (column, schema) = Box::pin(get_column_information_schema(pool, source)).await?;
+            Ok((column.cast(data_type.clone()), schema))
+        }
+        Column::BinaryOp { .. } => Ok((source.clone(), None)),
+        Column::Value(_) => Ok((source.clone(), None)),
     }
 }
 
@@ -284,9 +377,10 @@ pub(crate) async fn update_with_info(
     item: &mut QueryItem,
     passes: &Passes,
 ) -> Result<(), Box<dyn Error>> {
-    let (source, information_schema) = get_column_information_schema(pool, source).await?;
+    let mut map = HashMap::new();
+    get_all_info_schema(pool, source, &mut map).await?;
     for pass in &passes.information_schema {
-        pass.apply(information_schema.as_ref(), &source, item);
+        pass.apply(&map, &source, item);
     }
     Ok(())
 }

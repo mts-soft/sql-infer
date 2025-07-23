@@ -8,6 +8,5 @@ lto = "fat"
 codegen-units = 1
 panic = "abort"
 
-
-[profile.dev]
+[profile.dev.package."*"]
 opt-level = 3

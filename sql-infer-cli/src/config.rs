@@ -76,7 +76,18 @@ pub struct SqlInferConfig {
     pub target: PathBuf,
     pub mode: CodeGenerator,
     pub experimental_features: Features,
-    pub database_url: String,
+}
+
+pub fn db_url() -> Result<String, Box<dyn Error>> {
+    dotenv()?;
+    let mut db_url = None;
+    for (key, value) in env::vars() {
+        if key == DATABASE_URL {
+            db_url = Some(value.to_owned());
+        }
+    }
+
+    Ok(db_url.ok_or(ConfigError::DbUrlNotFound)?)
 }
 
 impl SqlInferConfig {
@@ -86,21 +97,11 @@ impl SqlInferConfig {
             CodeGenSource::List(items) => items,
         };
 
-        dotenv()?;
-        let mut db_url = None;
-        for (key, value) in env::vars() {
-            if key == DATABASE_URL {
-                db_url = Some(value.to_owned());
-            }
-        }
-
-        let db_url = db_url.ok_or(ConfigError::DbUrlNotFound)?;
         Ok(Self {
             source,
             target: config.target,
             mode: config.mode,
             experimental_features: config.experimental_features,
-            database_url: db_url,
         })
     }
 }

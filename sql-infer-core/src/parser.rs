@@ -4,11 +4,13 @@ use std::fmt::Display;
 use std::sync::Arc;
 
 use sqlparser::ast::{
-    Expr, FromTable, JoinOperator, SelectItem, SetExpr, Statement, TableFactor, TableObject,
-    TableWithJoins,
+    BinaryOperator, DataType, DollarQuotedString, Expr, FromTable, Function, JoinOperator,
+    SelectItem, SetExpr, Statement, TableFactor, TableObject, TableWithJoins, ValueWithSpan,
 };
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
+
+use crate::inference::SqlType;
 
 #[derive(Debug, Clone)]
 pub enum ParserError {
@@ -48,9 +50,169 @@ pub enum Table {
         left: (bool, Arc<Table>),
         right: (bool, Arc<Table>),
     },
+    Unknown {
+        sql: String,
+    },
 }
 
-#[derive(Debug, Clone)]
+impl Display for Table {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Table::Db { name } => write!(f, "table({name})"),
+            Table::Alias { name, source } => write!(f, "alias({name}, {source})"),
+            Table::Join {
+                left: (left_null, left),
+                right: (right_null, right),
+            } => {
+                write!(f, "combine(")?;
+                match left_null {
+                    true => write!(f, "maybe({left}), "),
+                    false => write!(f, "{left}, "),
+                }?;
+                match right_null {
+                    true => write!(f, "maybe({right})"),
+                    false => write!(f, "{right}"),
+                }?;
+                write!(f, ")")
+            }
+            Table::Unknown { sql } => write!(f, "unknown({sql})"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum BinaryOpData {
+    Unknown {
+        inner: BinaryOperator,
+    },
+    ConstantType {
+        inner: BinaryOperator,
+        sql_type: SqlType,
+    },
+    Numeric {
+        inner: BinaryOperator,
+    },
+    Concat,
+}
+
+impl BinaryOpData {
+    fn unknown(op: BinaryOperator) -> Self {
+        Self::Unknown { inner: op }
+    }
+
+    fn constant(op: BinaryOperator, sql_type: SqlType) -> Self {
+        Self::ConstantType {
+            inner: op,
+            sql_type,
+        }
+    }
+
+    fn numeric(op: BinaryOperator) -> Self {
+        Self::Numeric { inner: op }
+    }
+
+    fn concat() -> Self {
+        Self::Concat
+    }
+
+    /// Returns boolean indicating whether the output is guaranteed to be not null regardless of arguments.
+    pub fn not_null(&self) -> Option<bool> {
+        Some(false)
+    }
+
+    /// Returns type if the output of this operation is a single type regardless of the arguments
+    pub fn try_constant(&self) -> Option<SqlType> {
+        match self {
+            BinaryOpData::ConstantType { sql_type, .. } => Some(sql_type.clone()),
+            _ => None,
+        }
+    }
+
+    /// Returns type if the output of this operation can be determined
+    pub fn try_from_operands(&self, left: SqlType, right: SqlType) -> Option<SqlType> {
+        match self {
+            BinaryOpData::Unknown { .. } => None,
+            BinaryOpData::ConstantType { sql_type, .. } => Some(sql_type.clone()),
+            BinaryOpData::Numeric { .. } => {
+                if !(left.is_numeric() || right.is_numeric()) {
+                    return None;
+                }
+                match left.numeric_compare(&right)? {
+                    std::cmp::Ordering::Greater => Some(left),
+                    _ => Some(right),
+                }
+            }
+            BinaryOpData::Concat { .. } => {
+                if left.is_text() || right.is_text() {
+                    return Some(SqlType::Text);
+                }
+                None
+            }
+        }
+    }
+}
+
+impl From<BinaryOperator> for BinaryOpData {
+    fn from(value: BinaryOperator) -> Self {
+        // https://www.postgresql.org/docs/current/functions-math.html
+        match &value {
+            BinaryOperator::Plus
+            | BinaryOperator::Minus
+            | BinaryOperator::Multiply
+            | BinaryOperator::Divide
+            | BinaryOperator::Modulo => BinaryOpData::numeric(value),
+            BinaryOperator::StringConcat => BinaryOpData::concat(),
+            BinaryOperator::Gt
+            | BinaryOperator::Lt
+            | BinaryOperator::GtEq
+            | BinaryOperator::LtEq
+            | BinaryOperator::Eq
+            | BinaryOperator::NotEq
+            | BinaryOperator::And
+            | BinaryOperator::Or
+            | BinaryOperator::Xor => BinaryOpData::constant(value, SqlType::Bool),
+            _ => BinaryOpData::unknown(value),
+        }
+    }
+}
+
+impl Display for BinaryOpData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BinaryOpData::Unknown { inner } | BinaryOpData::Numeric { inner } => {
+                write!(f, "{inner}")
+            }
+            BinaryOpData::ConstantType { inner, sql_type } => {
+                write!(f, "op({inner}) -> {sql_type}")
+            }
+            BinaryOpData::Concat => write!(f, "concat"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ValueType {
+    Boolean,
+    Int,
+    Float,
+    String,
+    Null,
+}
+
+impl Display for ValueType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ValueType::Boolean => write!(f, "bool"),
+            ValueType::Int => write!(f, "int"),
+            ValueType::Float => write!(f, "float"),
+            ValueType::String => write!(f, "string"),
+            ValueType::Null => write!(f, "null"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Eq, Hash)]
+#[non_exhaustive]
 pub enum Column {
     DependsOn {
         table: String,
@@ -63,7 +225,19 @@ pub enum Column {
         left: Arc<Column>,
         right: Arc<Column>,
     },
-    Unknown,
+    Unknown {
+        sql: String,
+    },
+    Cast {
+        source: Arc<Column>,
+        data_type: DataType,
+    },
+    BinaryOp {
+        op: BinaryOpData,
+        left: Arc<Column>,
+        right: Arc<Column>,
+    },
+    Value(ValueType),
 }
 
 impl PartialEq for Column {
@@ -99,6 +273,20 @@ impl PartialEq for Column {
     }
 }
 
+impl Display for Column {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Column::DependsOn { table, column } => write!(f, "{table}.{column}"),
+            Column::Maybe { column } => write!(f, "maybe({column})"),
+            Column::Either { left, right } => write!(f, "either({left}, {right})"),
+            Column::Unknown { sql } => write!(f, "unknown({sql})"),
+            Column::Cast { source, data_type } => write!(f, "cast({source}, {data_type})"),
+            Column::BinaryOp { op, left, right } => write!(f, "binop({op}, {left}, {right})"),
+            Column::Value(value) => write!(f, "{value}"),
+        }
+    }
+}
+
 impl Column {
     pub fn depends_on(table: impl Into<String>, column: impl Into<String>) -> Column {
         Self::DependsOn {
@@ -120,13 +308,23 @@ impl Column {
         }
     }
 
-    pub fn unknown(&self) -> bool {
-        match self {
-            Column::DependsOn { .. } => false,
-            Column::Maybe { column } => column.unknown(),
-            Column::Either { left, right } => left.unknown() && right.unknown(),
-            Column::Unknown => true,
+    pub fn cast(self, data_type: DataType) -> Self {
+        Column::Cast {
+            source: self.into(),
+            data_type,
         }
+    }
+
+    pub fn bin_op(op: impl Into<BinaryOpData>, left: Column, right: Column) -> Self {
+        Column::BinaryOp {
+            op: op.into(),
+            left: left.into(),
+            right: right.into(),
+        }
+    }
+
+    pub fn value(value: ValueType) -> Self {
+        Self::Value(value)
     }
 }
 
@@ -148,6 +346,10 @@ impl Table {
 
     pub fn join(left: (bool, Arc<Table>), right: (bool, Arc<Table>)) -> Arc<Self> {
         Self::Join { left, right }.into()
+    }
+
+    pub fn unknown(sql: String) -> Arc<Self> {
+        Self::Unknown { sql }.into()
     }
 
     pub fn find_table_column(&self, table: &str, ident: &str) -> Option<Column> {
@@ -181,6 +383,7 @@ impl Table {
                     (Some(left), Some(right)) => Some(Column::either(left, right)),
                 }
             }
+            Table::Unknown { sql } => Some(Column::Unknown { sql: sql.clone() }),
         }
     }
 
@@ -204,37 +407,36 @@ impl Table {
                 };
                 Column::either(left, right)
             }
+            Table::Unknown { sql } => Column::Unknown { sql: sql.clone() },
         }
     }
 }
 
-fn relation_tables(table_factor: &TableFactor) -> Result<Arc<Table>, ParserError> {
+fn relation_tables(table_factor: &TableFactor) -> Arc<Table> {
     match table_factor {
         TableFactor::Table { name, alias, .. } => {
             let table = Table::new(name);
-            Ok(match alias {
+            match alias {
                 Some(alias) => Table::alias(alias, table),
                 None => table,
-            })
+            }
         }
         TableFactor::NestedJoin {
             table_with_joins,
             alias,
         } => {
-            let table = get_join(table_with_joins)?;
-            Ok(match alias {
+            let table = get_join(table_with_joins);
+            match alias {
                 Some(alias) => Table::alias(alias, table),
                 None => table,
-            })
+            }
         }
-        _ => Err(ParserError::UnsupportedTableType {
-            msg: table_factor.to_string(),
-        }),
+        _ => Table::unknown(table_factor.to_string()),
     }
 }
 
-fn get_join(table: &TableWithJoins) -> Result<Arc<Table>, ParserError> {
-    let mut left = relation_tables(&table.relation)?;
+fn get_join(table: &TableWithJoins) -> Arc<Table> {
+    let mut left = relation_tables(&table.relation);
     for join in &table.joins {
         let (left_null, right_null) = match &join.join_operator {
             JoinOperator::Inner(_) | JoinOperator::Join(_) => (false, false),
@@ -251,24 +453,16 @@ fn get_join(table: &TableWithJoins) -> Result<Arc<Table>, ParserError> {
             | JoinOperator::CrossApply
             | JoinOperator::OuterApply
             | JoinOperator::StraightJoin(_)
-            | JoinOperator::AsOf { .. } => {
-                return Err(ParserError::UnsupportedStatement {
-                    statement: table.to_string(),
-                });
-            }
+            | JoinOperator::AsOf { .. } => return Table::unknown(join.to_string()),
         };
-        let right = relation_tables(&join.relation)?;
+        let right = relation_tables(&join.relation);
         left = Table::join((left_null, left), (right_null, right));
     }
-    Ok(left)
+    left
 }
 
-fn identify_tables(tables: &[TableWithJoins]) -> Result<Vec<Arc<Table>>, ParserError> {
-    let mut names = vec![];
-    for table in tables {
-        names.push(get_join(table)?);
-    }
-    Ok(names)
+fn identify_tables(tables: &[TableWithJoins]) -> Vec<Arc<Table>> {
+    tables.iter().map(get_join).collect()
 }
 
 fn find_field_in_expr(expr: &Expr, tables: &[Arc<Table>]) -> Option<Column> {
@@ -281,6 +475,9 @@ fn find_field_in_expr(expr: &Expr, tables: &[Arc<Table>]) -> Option<Column> {
             }
             Some(result)
         }
+        Expr::Cast {
+            expr, data_type, ..
+        } => Some(find_field_in_expr(expr, tables)?.cast(data_type.clone())),
         Expr::CompoundIdentifier(idents) => {
             let table_name = idents.get(idents.len() - 2);
             let (table_ident, col_ident) = table_name.zip(idents.last())?;
@@ -295,7 +492,47 @@ fn find_field_in_expr(expr: &Expr, tables: &[Arc<Table>]) -> Option<Column> {
             }
             result
         }
-        _ => None,
+        Expr::Nested(expr) => find_field_in_expr(expr, tables),
+        Expr::BinaryOp { left, op, right } => Some(Column::bin_op(
+            op.clone(),
+            find_field_in_expr(left, tables)?,
+            find_field_in_expr(right, tables)?,
+        )),
+        Expr::Value(ValueWithSpan { value, .. }) => {
+            use sqlparser::ast::Value;
+            match value {
+                Value::Number(number, _) => Some(match number.is_integer() {
+                    true => Column::value(ValueType::Int),
+                    false => Column::value(ValueType::Float),
+                }),
+                Value::SingleQuotedString(_string)
+                | Value::DollarQuotedString(DollarQuotedString { value: _string, .. })
+                | Value::TripleSingleQuotedString(_string)
+                | Value::TripleDoubleQuotedString(_string)
+                | Value::EscapedStringLiteral(_string)
+                | Value::UnicodeStringLiteral(_string)
+                | Value::SingleQuotedByteStringLiteral(_string)
+                | Value::DoubleQuotedByteStringLiteral(_string)
+                | Value::TripleSingleQuotedByteStringLiteral(_string)
+                | Value::TripleDoubleQuotedByteStringLiteral(_string)
+                | Value::SingleQuotedRawStringLiteral(_string)
+                | Value::DoubleQuotedRawStringLiteral(_string)
+                | Value::TripleSingleQuotedRawStringLiteral(_string)
+                | Value::TripleDoubleQuotedRawStringLiteral(_string)
+                | Value::NationalStringLiteral(_string)
+                | Value::HexStringLiteral(_string)
+                | Value::DoubleQuotedString(_string) => Some(Column::value(ValueType::String)),
+                Value::Boolean(_boolean) => Some(Column::Value(ValueType::Boolean)),
+                Value::Null => Some(Column::Value(ValueType::Null)),
+                Value::Placeholder(_) => None,
+            }
+        }
+        Expr::Function(Function { name, .. }) if name.to_string().to_lowercase() == "count" => {
+            Some(Column::Value(ValueType::Int))
+        }
+        _ => Some(Column::Unknown {
+            sql: expr.to_string(),
+        }),
     }
 }
 
@@ -329,6 +566,32 @@ fn find_fields_in_items(items: &[SelectItem], tables: &[Arc<Table>]) -> HashMap<
     columns
 }
 
+pub fn find_tables(statement: &Statement) -> Vec<Arc<Table>> {
+    match statement {
+        Statement::Query(query) => match &*query.body {
+            SetExpr::Select(select) => identify_tables(&select.from),
+            _ => vec![Table::unknown(query.to_string())],
+        },
+        Statement::Insert(insert) => {
+            let table = match &insert.table {
+                TableObject::TableName(object_name) => Table::new(object_name),
+                _ => Table::unknown(insert.table.to_string()),
+            };
+            vec![table]
+        }
+        Statement::Update { table, .. } => vec![get_join(table)],
+        Statement::Delete(delete) => {
+            let tables = match &delete.from {
+                FromTable::WithoutKeyword(tables) | FromTable::WithFromKeyword(tables) => {
+                    identify_tables(tables)
+                }
+            };
+            tables
+        }
+        _ => vec![Table::unknown(statement.to_string())],
+    }
+}
+
 pub fn find_fields(statement: &Statement) -> Result<HashMap<String, Column>, ParserError> {
     match statement {
         Statement::Query(query) => {
@@ -340,7 +603,7 @@ pub fn find_fields(statement: &Statement) -> Result<HashMap<String, Column>, Par
             match &*query.body {
                 SetExpr::Select(select) => Ok(find_fields_in_items(
                     &select.projection,
-                    &identify_tables(&select.from)?,
+                    &identify_tables(&select.from),
                 )),
                 _ => Err(ParserError::UnsupportedStatement {
                     statement: query.to_string(),
@@ -364,7 +627,7 @@ pub fn find_fields(statement: &Statement) -> Result<HashMap<String, Column>, Par
         Statement::Update {
             table, returning, ..
         } => {
-            let table = get_join(table)?;
+            let table = get_join(table);
             Ok(match &returning {
                 Some(returning) => find_fields_in_items(returning, &[table]),
                 None => HashMap::new(),
@@ -373,7 +636,7 @@ pub fn find_fields(statement: &Statement) -> Result<HashMap<String, Column>, Par
         Statement::Delete(delete) => {
             let tables = match &delete.from {
                 FromTable::WithoutKeyword(tables) | FromTable::WithFromKeyword(tables) => {
-                    identify_tables(tables)?
+                    identify_tables(tables)
                 }
             };
             Ok(match &delete.returning {

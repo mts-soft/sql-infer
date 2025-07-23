@@ -3,7 +3,7 @@ use std::error::Error;
 use crate::inference::{Passes, QueryTypes, UseInformationSchema};
 
 pub mod inference;
-mod parser;
+pub mod parser;
 
 #[must_use]
 pub struct SqlInferBuilder {

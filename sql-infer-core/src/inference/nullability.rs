@@ -1,6 +1,8 @@
+use std::collections::HashMap;
+
 use crate::{
     inference::{InformationSchema, Nullability, UseInformationSchema},
-    parser::Column,
+    parser::{Column, ValueType},
 };
 
 pub struct ColumnNullability;
@@ -8,34 +10,46 @@ pub struct ColumnNullability;
 impl UseInformationSchema for ColumnNullability {
     fn apply(
         &self,
-        schema: Option<&InformationSchema>,
+        schemas: &HashMap<Column, InformationSchema>,
         source: &Column,
         column: &mut super::QueryItem,
     ) {
-        let Some(schema) = schema else {
-            return;
-        };
-        if column_is_nullable(source) == Nullability::True {
-            column.nullable = Nullability::True;
-            return;
-        }
-        match schema.is_nullable {
-            Some(true) => column.nullable = Nullability::True,
-            Some(false) => column.nullable = Nullability::False,
-            None => column.nullable = Nullability::Unknown,
-        }
+        column.nullable = column_is_nullable(&source, schemas);
     }
 }
 
-fn column_is_nullable(col: &Column) -> Nullability {
+fn column_is_nullable(col: &Column, schemas: &HashMap<Column, InformationSchema>) -> Nullability {
     match col {
-        Column::DependsOn { .. } => Nullability::False,
+        Column::DependsOn { .. } => {
+            schemas
+                .get(col)
+                .map_or(Nullability::Unknown, |schema| match schema.is_nullable {
+                    Some(true) => Nullability::True,
+                    Some(false) => Nullability::False,
+                    None => Nullability::Unknown,
+                })
+        }
         Column::Maybe { .. } => Nullability::True,
-        Column::Either { left, right } => match column_is_nullable(left) {
+        Column::Either { left, right } => match column_is_nullable(left, schemas) {
             Nullability::True => Nullability::True,
-            Nullability::False => column_is_nullable(right),
+            Nullability::False => column_is_nullable(right, schemas),
             Nullability::Unknown => Nullability::Unknown,
         },
-        Column::Unknown => Nullability::Unknown,
+        Column::Unknown { .. } => Nullability::Unknown,
+        Column::Cast { source, .. } => column_is_nullable(source, schemas),
+        Column::BinaryOp { op, left, right } => {
+            if op.not_null() == Some(true) {
+                return Nullability::False;
+            }
+            match column_is_nullable(left, schemas) {
+                Nullability::True => Nullability::True,
+                Nullability::False => column_is_nullable(right, schemas),
+                Nullability::Unknown => Nullability::Unknown,
+            }
+        }
+        Column::Value(value_type) => match value_type {
+            ValueType::Null => Nullability::True,
+            _ => Nullability::False,
+        },
     }
 }

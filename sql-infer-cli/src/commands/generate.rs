@@ -22,7 +22,7 @@ use crate::{
         CodeGen, QueryDefinition, json::JsonCodeGen, sqlalchemy::SqlAlchemyCodeGen,
         sqlalchemy_async::SqlAlchemyAsyncCodeGen,
     },
-    config::{CodeGenerator, SqlInferConfig, TomlConfig},
+    config::{CodeGenerator, SqlInferConfig, TomlConfig, db_url},
     utils::{ParametrizedQuery, parse_into_postgres},
 };
 
@@ -33,7 +33,7 @@ pub struct Generate {
 }
 
 impl Generate {
-    pub fn run(self) -> Result<(), Box<dyn Error>> {
+    pub async fn run(self) -> Result<(), Box<dyn Error>> {
         let config = match self.config {
             Some(config) => config,
             None => PathBuf::from("sql-infer.toml"),
@@ -59,12 +59,10 @@ impl Generate {
             CodeGenerator::SqlAlchemyAsync => Box::new(SqlAlchemyAsyncCodeGen::default()),
         };
 
-        let rt = tokio::runtime::Runtime::new()?;
-        let pool = rt.block_on(
-            PgPoolOptions::new()
-                .max_connections(1)
-                .connect(&config.database_url),
-        )?;
+        let pool = PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&db_url()?)
+            .await?;
 
         let mut query = String::new();
         let mut files = HashSet::<String>::new();
@@ -89,7 +87,7 @@ impl Generate {
 
                 let ParametrizedQuery { raw_query, params } = parse_into_postgres(&query)?;
 
-                let check_result = rt.block_on(sql_infer.infer_types(&pool, &raw_query));
+                let check_result = sql_infer.infer_types(&pool, &raw_query).await;
                 let query_types = match check_result {
                     Ok(query_types) => query_types,
                     Err(err) => {
