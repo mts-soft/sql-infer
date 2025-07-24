@@ -1,6 +1,6 @@
 # sql-infer
 
-Type inference system for PostgreSQL built on SQLx.
+Type inference and static analysis for PostgreSQL queries built on SQLx and sqlparser.
 
 
 ## Why was sql-infer made?
@@ -35,7 +35,7 @@ precise-output-datatypes = true
 
 ## Project Structure 
 
-- Below is the recommended project structure, it is also possible to have sub directories within queries and add them to the searched `path` in `sql-infer.toml`.
+Below is the recommended project structure, it is also possible to have sub directories within queries and add them to the searched `path` in `sql-infer.toml`.  
 ```
 project
 |   src
@@ -47,10 +47,10 @@ project
 |   sql-infer.toml
 ```
 
-- Upon running `sql-infer generate` sql-infer will look for `sql-infer.toml` within the current directory, look for the `DATABASE_URL` environment variable and attempt to connect to the database. Keep in mind that there is very minimal sanitization being done in `sql-infer` and it should strictly be used with trusted input and in a trusted environment.
+Upon running `sql-infer generate` sql-infer will look for `sql-infer.toml` within the current directory, look for the `DATABASE_URL` environment variable and attempt to connect to the database. Keep in mind that there is very minimal sanitization being done in `sql-infer` and it should strictly be used with trusted input and in a trusted environment.
 
 ## Example sql-infer usage
-- It is recommended to have sql-infer output be formatted if `sql-alchemy` or `sql-alchemy-async` is being used. If the `json` output format is being used, you are probably already making your own code generation on top if it.
+It is recommended to have sql-infer output be formatted if `sql-alchemy` or `sql-alchemy-async` is being used. If the `json` output format is being used, you are probably already making your own code generation on top if it.
 
 Imagine a file named `example.sql` with the below content
 ```sql
@@ -125,14 +125,10 @@ Supported features:
 
 Infer whether the output type is nullable or not to the extent possible.
 
-This currently works for queries that only use inner/left/right/cross joins and queries that return a column as is without any modification.
-
 ### Precise Output Datatypes
 
-Infer additional information relating to the datatype.
+Infer additional information relating to the datatype to the extent possible.
 
 - with/without timezone for Timestamp and Time
 - Char and VarChar lengths
 - Decimal precision and precision radix
-
-This currently works for queries that only use inner/left/right/cross joins and queries that return a column as is without any modification.
