@@ -1,7 +1,7 @@
 # sql-infer
 
-Type inference and static analysis for PostgreSQL queries built on SQLx and sqlparser.
-
+Type inference and static analysis for PostgreSQL queries built on SQLx and sqlparser.  
+Do `pip install sql-infer` to get started. 
 
 ## Why was sql-infer made?
 We were originally using SQL Alchemy ORM within the organization as minimal research suggests it to be the go-to. We had a couple problems with it:
