@@ -202,10 +202,10 @@ impl SqlType {
     }
 
     pub fn is_text(&self) -> bool {
-        match self {
-            SqlType::Char { .. } | SqlType::VarChar { .. } | SqlType::Text => true,
-            _ => false,
-        }
+        matches!(
+            self,
+            SqlType::Char { .. } | SqlType::VarChar { .. } | SqlType::Text
+        )
     }
 
     fn numeric_rank(&self) -> Option<u8> {
@@ -311,13 +311,12 @@ pub async fn get_all_info_schema(
                 Ok::<_, Box<dyn Error>>((left, right))
             });
             let (left, right) = future.await?;
-            let schema = match (left, right) {
+            match (left, right) {
                 (None, None) => None,
                 (None, Some(right)) => Some(right),
                 (Some(left), None) => Some(left),
                 (Some(_), Some(_)) => None,
-            };
-            schema
+            }
         }
         Column::Unknown { .. } => None,
         Column::Cast { source, .. } => Box::pin(get_all_info_schema(pool, source, map)).await?,
@@ -380,7 +379,7 @@ pub(crate) async fn update_with_info(
     let mut map = HashMap::new();
     get_all_info_schema(pool, source, &mut map).await?;
     for pass in &passes.information_schema {
-        pass.apply(&map, &source, item);
+        pass.apply(&map, source, item);
     }
     Ok(())
 }

@@ -14,7 +14,7 @@ impl UseInformationSchema for ColumnNullability {
         source: &Column,
         column: &mut super::QueryItem,
     ) {
-        column.nullable = column_is_nullable(&source, schemas);
+        column.nullable = column_is_nullable(source, schemas);
     }
 }
 
