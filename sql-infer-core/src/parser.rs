@@ -123,7 +123,7 @@ impl BinaryOpData {
     /// Returns type if the output of this operation is a single type regardless of the arguments
     pub fn try_constant(&self) -> Option<SqlType> {
         match self {
-            BinaryOpData::ConstantType { sql_type, .. } => Some(sql_type.clone()),
+            BinaryOpData::ConstantType { sql_type, .. } => Some(*sql_type),
             _ => None,
         }
     }
@@ -132,7 +132,7 @@ impl BinaryOpData {
     pub fn try_from_operands(&self, left: SqlType, right: SqlType) -> Option<SqlType> {
         match self {
             BinaryOpData::Unknown { .. } => None,
-            BinaryOpData::ConstantType { sql_type, .. } => Some(sql_type.clone()),
+            BinaryOpData::ConstantType { sql_type, .. } => Some(*sql_type),
             BinaryOpData::Numeric { .. } => {
                 if !(left.is_numeric() || right.is_numeric()) {
                     return None;
@@ -142,7 +142,7 @@ impl BinaryOpData {
                     _ => Some(right),
                 }
             }
-            BinaryOpData::Concat { .. } => {
+            BinaryOpData::Concat => {
                 if left.is_text() || right.is_text() {
                     return Some(SqlType::Text);
                 }
@@ -211,7 +211,7 @@ impl Display for ValueType {
     }
 }
 
-#[derive(Debug, Clone, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Column {
     DependsOn {
@@ -238,39 +238,6 @@ pub enum Column {
         right: Arc<Column>,
     },
     Value(ValueType),
-}
-
-impl PartialEq for Column {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (
-                Self::DependsOn {
-                    table: l_table,
-                    column: l_column,
-                },
-                Self::DependsOn {
-                    table: r_table,
-                    column: r_column,
-                },
-            ) => l_table == r_table && l_column == r_column,
-            (Self::Maybe { column: l_column }, Self::Maybe { column: r_column }) => {
-                l_column == r_column
-            }
-            (
-                Self::Either {
-                    left: l_left,
-                    right: l_right,
-                },
-                Self::Either {
-                    left: r_left,
-                    right: r_right,
-                },
-            ) => {
-                (l_left == r_left && l_right == r_right) || (l_left == r_right && l_right == r_left)
-            }
-            _ => core::mem::discriminant(self) == core::mem::discriminant(other),
-        }
-    }
 }
 
 impl Display for Column {
@@ -580,14 +547,11 @@ pub fn find_tables(statement: &Statement) -> Vec<Arc<Table>> {
             vec![table]
         }
         Statement::Update { table, .. } => vec![get_join(table)],
-        Statement::Delete(delete) => {
-            let tables = match &delete.from {
-                FromTable::WithoutKeyword(tables) | FromTable::WithFromKeyword(tables) => {
-                    identify_tables(tables)
-                }
-            };
-            tables
-        }
+        Statement::Delete(delete) => match &delete.from {
+            FromTable::WithoutKeyword(tables) | FromTable::WithFromKeyword(tables) => {
+                identify_tables(tables)
+            }
+        },
         _ => vec![Table::unknown(statement.to_string())],
     }
 }
