@@ -38,7 +38,12 @@ impl Generate {
             Some(config) => config,
             None => PathBuf::from("sql-infer.toml"),
         };
-        let config: TomlConfig = toml::from_slice(&std::fs::read(config)?)?;
+        let config: TomlConfig = toml::from_slice(&std::fs::read(&config).map_err(|error| {
+            format!(
+                "encountered '{error}' attempting to read {}",
+                config.display()
+            )
+        })?)?;
         let config: SqlInferConfig = SqlInferConfig::from_toml_config(config)?;
 
         let mut sql_infer = SqlInferBuilder::default();

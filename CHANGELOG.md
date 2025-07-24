@@ -1,3 +1,9 @@
+# Unreleased
+
+## Added
+- Better error messages when the program fails to find `DATABASE_URL` or `sql-infer.toml`.
+
+
 # 0.11.0
 
 ## Breaking Changes
