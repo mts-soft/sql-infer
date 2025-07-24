@@ -1,4 +1,4 @@
-# Unreleased
+# 0.11.0
 
 ## Breaking Changes
 - Empty queries cause errors
@@ -8,7 +8,7 @@
     It is now possible to run `sql-infer-cli analyze [columns|tables|columns-with-db] <queries>` on a list of comma separated paths or sql queries in order to see what the parser is doing.
 - Support for nested expressions (e.g. `(x)`) 
 - Partial support for casts
-- Support for values (e.g. `1`)
+- Support for values (e.g. `1`, `value`)
 - Support for certain binary operations: `<`, `<=`, `>`, `>=`, `=`, `!=`, `and`, `or`, `xor`, `+`, `-`, `*`, `/`, `%` and `||`.
 - Support for `count` by assuming it to be an integer value.
 
