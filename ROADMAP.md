@@ -1,7 +1,7 @@
 In no particular order:
 
 - [x] Migrate from async-std to tokio
-- [ x Separate sql-infer CLI implementation from sql-infer functionality
+- [x] Separate sql-infer CLI implementation from sql-infer functionality
     - This will result in `sql-infer-core` that strictly is a type inference library and an `sql-infer-cli` crate that will include the CLI part of the functionality. 
 - [ ] Setup regression tests for `sql-infer-core`
     - This will require an active postgreSQL instance on the host machine   
