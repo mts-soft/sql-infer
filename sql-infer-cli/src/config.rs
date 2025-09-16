@@ -3,6 +3,8 @@ use std::{env, error::Error, fmt::Display, path::PathBuf};
 use dotenvy::dotenv;
 use serde::{Deserialize, Serialize};
 
+use crate::codegen::sqlalchemy_v2::{ArgumentMode, TypeGen};
+
 const DATABASE_URL: &str = "DATABASE_URL";
 
 #[derive(Debug, Clone)]
@@ -50,6 +52,15 @@ pub enum CodeGenerator {
     Json,
     SqlAlchemy,
     SqlAlchemyAsync,
+    #[serde(rename_all = "kebab-case")]
+    SqlAlchemyV2 {
+        #[serde(default = "bool::default")]
+        r#async: bool,
+        #[serde(default = "ArgumentMode::default")]
+        argument_mode: ArgumentMode,
+        #[serde(default = "TypeGen::default")]
+        type_gen: TypeGen,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
