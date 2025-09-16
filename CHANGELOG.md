@@ -1,15 +1,16 @@
-# Unreleased
+# 0.12.0
 
 ## Added
 - Better error messages when the program fails to find `DATABASE_URL` or `sql-infer.toml`.
-- `sql-alchemy-2` code generation to allow for more customization.  
+- `sql-alchemy-v2` code generation to allow for more customization.  
     ```toml
     [mode.sql-alchemy-v2]
     async = false # or true
     type-gen = "python" # or pydantic
     argument-mode = "positional" # or keyword
     ```
-- `type-gen = "python"` allows for NaiveDatetime and AwareDatetime types to be generated
+- `async = "true"` generates async code.
+- `type-gen = "python"` allows for NaiveDatetime and AwareDatetime types to be generated.
 - `argument-mode = "keyword"` forces every argument except for the connection object to be specified by a keyword. This is done to minimize errors due to argument order depending on SQL queries.     
 
 # 0.11.0
