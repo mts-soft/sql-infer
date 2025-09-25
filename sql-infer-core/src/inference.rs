@@ -2,11 +2,13 @@ pub mod datatypes;
 pub mod nullability;
 
 use serde::{Deserialize, Serialize};
+use sqlx::postgres::{PgTypeInfo, PgTypeKind};
 use sqlx::{Either, Pool, Postgres, Statement, TypeInfo};
 use sqlx::{Executor, query_as};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::Display;
+use std::sync::Arc;
 use std::{error::Error, fmt};
 
 use crate::parser::{Column, find_fields, to_ast};
@@ -68,7 +70,7 @@ pub struct QueryTypes {
     pub output: Box<[QueryItem]>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SqlType {
     Bool,
     // Integer Types
@@ -113,6 +115,11 @@ pub enum SqlType {
     // Float types
     Float4,
     Float8,
+    // Enum
+    Enum {
+        name: String,
+        tags: Arc<[String]>,
+    },
     // Unknown types
     Unknown,
 }
@@ -181,6 +188,7 @@ impl Display for SqlType {
             } => write!(f, "varbit({length})"),
             SqlType::VarBit { length: None } => write!(f, "varbit"),
             SqlType::Unknown => write!(f, "unknown"),
+            SqlType::Enum { name, tags } => write!(f, "{name}: {}", tags.join(", ")),
         }
     }
 }
@@ -228,6 +236,16 @@ impl SqlType {
             .map(|(left, right)| left.cmp(&right))
     }
 
+    fn from_pg_type_info(type_info: &PgTypeInfo) -> Result<Self, Box<dyn Error>> {
+        Ok(match type_info.kind() {
+            PgTypeKind::Enum(items) => SqlType::Enum {
+                name: type_info.name().to_string(),
+                tags: items.clone(),
+            },
+            _ => SqlType::from_str(type_info.name())?,
+        })
+    }
+
     fn from_str(sql_type: &str) -> Result<Self, Box<dyn Error>> {
         Ok(match sql_type {
             "BOOL" => Self::Bool,
@@ -243,7 +261,7 @@ impl SqlType {
             },
             "TIMESTAMP" => Self::Timestamp { tz: false },
             "TIMESTAMPTZ" => Self::Timestamp { tz: true },
-            "TIME"=> Self::Time { tz: false },
+            "TIME" => Self::Time { tz: false },
             "TIMETZ" => Self::Time { tz: true },
             "DATE" => Self::Date,
             "CHAR" => Self::Char { length: None },
@@ -421,7 +439,7 @@ pub(crate) async fn check_statement(
     for column in prepared.columns() {
         result_types.push(QueryItem {
             name: column.name().to_string(),
-            sql_type: SqlType::from_str(column.type_info().name())?,
+            sql_type: SqlType::from_pg_type_info(column.type_info())?,
             nullable: Nullability::Unknown,
         });
     }
@@ -431,7 +449,7 @@ pub(crate) async fn check_statement(
             for (param, name) in parameters.iter().zip(parameters.iter()) {
                 input_types.push(QueryItem {
                     name: name.to_string(),
-                    sql_type: SqlType::from_str(param.name())?,
+                    sql_type: SqlType::from_pg_type_info(param)?,
                     nullable: Nullability::Unknown,
                 });
             }

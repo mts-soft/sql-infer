@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from datetime import datetime, timedelta, date
     from decimal import Decimal
     
-    from typing import Any
+    from typing import Any, Literal
 
     from sqlalchemy import Connection
 

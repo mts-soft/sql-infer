@@ -123,7 +123,7 @@ impl BinaryOpData {
     /// Returns type if the output of this operation is a single type regardless of the arguments
     pub fn try_constant(&self) -> Option<SqlType> {
         match self {
-            BinaryOpData::ConstantType { sql_type, .. } => Some(*sql_type),
+            BinaryOpData::ConstantType { sql_type, .. } => Some(sql_type.clone()),
             _ => None,
         }
     }
@@ -132,7 +132,7 @@ impl BinaryOpData {
     pub fn try_from_operands(&self, left: SqlType, right: SqlType) -> Option<SqlType> {
         match self {
             BinaryOpData::Unknown { .. } => None,
-            BinaryOpData::ConstantType { sql_type, .. } => Some(*sql_type),
+            BinaryOpData::ConstantType { sql_type, .. } => Some(sql_type.clone()),
             BinaryOpData::Numeric { .. } => {
                 if !(left.is_numeric() || right.is_numeric()) {
                     return None;

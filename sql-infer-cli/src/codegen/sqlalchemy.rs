@@ -29,7 +29,7 @@ fn to_pascal(mixed_case_name: &str) -> String {
 }
 
 fn to_py_input_type(item: &QueryItem) -> String {
-    let py_type = match item.sql_type {
+    let py_type = match &item.sql_type {
         SqlType::Bool => "bool",
         SqlType::Int2
         | SqlType::Int4
@@ -50,6 +50,15 @@ fn to_py_input_type(item: &QueryItem) -> String {
         SqlType::Interval => "timedelta",
         SqlType::Bit { .. } | SqlType::VarBit { .. } => "str",
         SqlType::Unknown => "Any",
+        SqlType::Enum { tags, .. } => {
+            return format!(
+                "Literal[{}]",
+                tags.iter()
+                    .map(|tag| format!("{tag:?}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
     }
     .to_owned();
     match item.nullable {

@@ -30,7 +30,7 @@ fn to_pascal(mixed_case_name: &str) -> String {
 }
 
 fn to_py_input_type(item: &QueryItem) -> String {
-    let py_type = match item.sql_type {
+    let py_type = match &item.sql_type {
         SqlType::Bool => "bool",
         SqlType::Int2
         | SqlType::Int4
@@ -50,6 +50,15 @@ fn to_py_input_type(item: &QueryItem) -> String {
         SqlType::Float4 | SqlType::Float8 => "float",
         SqlType::Interval => "timedelta",
         SqlType::Bit { .. } | SqlType::VarBit { .. } => "str",
+        SqlType::Enum { tags, .. } => {
+            return format!(
+                "Literal[{}]",
+                tags.iter()
+                    .map(|tag| format!("{tag:?}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
         SqlType::Unknown => "Any",
     }
     .to_owned();
@@ -60,7 +69,7 @@ fn to_py_input_type(item: &QueryItem) -> String {
 }
 
 fn to_pydantic_input_type(item: &QueryItem) -> String {
-    let py_type = match item.sql_type {
+    let py_type = match &item.sql_type {
         SqlType::Bool => "bool",
         SqlType::Int2
         | SqlType::Int4
@@ -82,6 +91,15 @@ fn to_pydantic_input_type(item: &QueryItem) -> String {
         SqlType::Float4 | SqlType::Float8 => "float",
         SqlType::Interval => "timedelta",
         SqlType::Bit { .. } | SqlType::VarBit { .. } => "str",
+        SqlType::Enum { tags, .. } => {
+            return format!(
+                "Literal[{}]",
+                tags.iter()
+                    .map(|tag| format!("{tag:?}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
         SqlType::Unknown => "Any",
     }
     .to_owned();
