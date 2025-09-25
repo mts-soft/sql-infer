@@ -1,3 +1,17 @@
+# Unreleased
+
+## Breaking Changes
+- `char` and `varchar` types are no longer displayed as `char(???)` when length is unknown, instead the parentheses are omitted.
+- `timestamp without timezone` and variants have been fixed to display `time zone` instead of `timezone`.
+- `sql-infer` no longer errors out when an unknown type is encountered, it will instead generate an `unknown` type and code generation will handle it.   
+
+## Added
+- `schema display` command will pretty print the tables' names, columns and datatypes.
+    - Table names are accessed through the DB but a `select * from {table}` is generated for each table with no care for escaping, this will be fixed before a release.
+- `schema lint` command will go through all user defined tables and point out potential problems.
+    - Currently this only checks for `timestamp without time zone` and `time with time zone` as the former is to be avoided in most cases and the latter should almost never be necessary.
+- `sql-alchemy`, `sql-alchemy-async`, `sql-alchemy-v2` code generators now produce `Any` for unknown types.
+
 # 0.12.0
 
 ## Added

@@ -113,6 +113,8 @@ pub enum SqlType {
     // Float types
     Float4,
     Float8,
+    // Unknown types
+    Unknown,
 }
 
 impl Display for SqlType {
@@ -138,9 +140,9 @@ impl Display for SqlType {
                 f,
                 "timestamp {}",
                 if *tz {
-                    "with timezone"
+                    "with time zone"
                 } else {
-                    "without timezone"
+                    "without time zone"
                 }
             ),
             SqlType::Date => write!(f, "date"),
@@ -148,27 +150,25 @@ impl Display for SqlType {
                 f,
                 "time {}",
                 if *tz {
-                    "with timezone"
+                    "with time zone"
                 } else {
-                    "without timezone"
+                    "without time zone"
                 }
             ),
             SqlType::Interval => write!(f, "interval"),
             SqlType::Char { length } => {
-                let length = if let Some(length) = length {
-                    &format!("{length}")
+                if let Some(length) = length {
+                    write!(f, "char({length})")
                 } else {
-                    "???"
-                };
-                write!(f, "char({length})",)
+                    write!(f, "char")
+                }
             }
             SqlType::VarChar { length } => {
-                let length = if let Some(length) = length {
-                    &format!("{length}")
+                if let Some(length) = length {
+                    write!(f, "varchar({length})")
                 } else {
-                    "???"
-                };
-                write!(f, "varchar({length})",)
+                    write!(f, "varchar")
+                }
             }
             SqlType::Text => write!(f, "text"),
             SqlType::Json => write!(f, "json"),
@@ -180,6 +180,7 @@ impl Display for SqlType {
                 length: Some(length),
             } => write!(f, "varbit({length})"),
             SqlType::VarBit { length: None } => write!(f, "varbit"),
+            SqlType::Unknown => write!(f, "unknown"),
         }
     }
 }
@@ -254,9 +255,7 @@ impl SqlType {
             "DOUBLE PRECISION" | "FLOAT8" => Self::Float8,
             "REAL" | "FLOAT4" => Self::Float4,
             "INTERVAL" => Self::Interval,
-            _ => Err(CheckerError::UnrecognizedType {
-                sql_type: sql_type.to_string(),
-            })?,
+            _ => Self::Unknown,
         })
     }
 }

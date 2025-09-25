@@ -12,3 +12,4 @@ In no particular order:
 - [ ] No panic
 - [ ] Descriptive error messages
 - [ ] Remove serde dependency on sql-infer-core
+- [ ] `sql-infer upgrade` command to replace deprecated options with their new equivalents  

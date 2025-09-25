@@ -49,6 +49,7 @@ fn to_py_input_type(item: &QueryItem) -> String {
         SqlType::Float4 | SqlType::Float8 => "float",
         SqlType::Interval => "timedelta",
         SqlType::Bit { .. } | SqlType::VarBit { .. } => "str",
+        SqlType::Unknown => "Any",
     }
     .to_owned();
     match item.nullable {
