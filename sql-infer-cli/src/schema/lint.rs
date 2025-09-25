@@ -84,3 +84,26 @@ impl Lint for TimeWithTimezone {
         errors
     }
 }
+
+pub struct TableColumnNameClash;
+
+impl Lint for TableColumnNameClash {
+    fn lint(&self, db: &DbSchema) -> Vec<LintError> {
+        let mut errors = vec![];
+        for table in &db.tables {
+            for column in &table.columns {
+                if table.name != column.name {
+                    continue;
+                };
+                errors.push(LintError {
+                    source: Source::Column {
+                        table: table.name.clone(),
+                        column: column.name.clone(),
+                    },
+                    msg: Cow::Borrowed("column name is the same as table name"),
+                });
+            }
+        }
+        errors
+    }
+}

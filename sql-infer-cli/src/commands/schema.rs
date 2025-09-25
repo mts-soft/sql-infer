@@ -105,10 +105,14 @@ WHERE
             Analysis::Lint => {
                 let ttz = schema::lint::TimeWithTimezone;
                 let twt = schema::lint::TimestampWithoutTimezone;
+                let tcnc = schema::lint::TableColumnNameClash;
                 for error in ttz.lint(&db_schema) {
                     println!("{error}");
                 }
                 for error in twt.lint(&db_schema) {
+                    println!("{error}");
+                }
+                for error in tcnc.lint(&db_schema) {
                     println!("{error}");
                 }
             }

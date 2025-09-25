@@ -10,7 +10,7 @@
 - `schema display` command will pretty print the tables' names, columns and datatypes.
     - Table names are accessed through the DB but a `select * from {table}` is generated for each table with no care for escaping, this will be fixed before a release.
 - `schema lint` command will go through all user defined tables and point out potential problems.
-    - Currently this only checks for `timestamp without time zone` and `time with time zone` as the former is to be avoided in most cases and the latter should almost never be necessary.
+    - Currently this only checks for `timestamp without time zone`, `time with time zone` and clashes between column and table names. `timestamp without time zone` may be necessary but is a product of forgetfulness most times. Use of `time with time zone` is actively discouraged by postgreSQL docs and a column having the same name as the table causes ambiguity at best.  
 - `sql-alchemy`, `sql-alchemy-async`, `sql-alchemy-v2` code generators now produce `Any` for unknown types.
 
 # 0.12.0
