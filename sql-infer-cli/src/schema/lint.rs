@@ -46,7 +46,7 @@ impl Lint for TimestampWithoutTimezone {
         let mut errors = vec![];
         for table in &db.tables {
             for column in &table.columns {
-                let SqlType::Timestamp { tz: true } = column.data_type else {
+                let SqlType::Timestamp { tz: false } = column.data_type else {
                     continue;
                 };
                 errors.push(LintError {
@@ -69,7 +69,7 @@ impl Lint for TimeWithTimezone {
         let mut errors = vec![];
         for table in &db.tables {
             for column in &table.columns {
-                let SqlType::Time { tz: false } = column.data_type else {
+                let SqlType::Time { tz: true } = column.data_type else {
                     continue;
                 };
                 errors.push(LintError {
