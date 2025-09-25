@@ -1,9 +1,10 @@
 # Unreleased
 
 ## Breaking Changes
+- `time` no longer incorrectly generates a `timetz` internally.
 - `char` and `varchar` types are no longer displayed as `char(???)` when length is unknown, instead the parentheses are omitted.
 - `timestamp without timezone` and variants have been fixed to display `time zone` instead of `timezone`.
-- `sql-infer` no longer errors out when an unknown type is encountered, it will instead generate an `unknown` type and code generation will handle it.   
+- `sql-infer` no longer errors out when an unknown type is encountered, it will instead generate an `unknown` type and code generation will handle it.
 
 ## Added
 - `schema display` command will pretty print the tables' names, columns and datatypes.
