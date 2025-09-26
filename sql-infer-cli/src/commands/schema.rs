@@ -78,6 +78,8 @@ WHERE
 
         let mut table_schemas = vec![];
         for table in tables {
+            // Guaranteed to be valid table name, escape double quotes with double quotes as per PostgreSQL documentation.
+            let table = table.replace("\"", "\"\"");
             let types = sql_infer
                 .infer_types(&pool, &format!("select * from {table}"))
                 .await?;
