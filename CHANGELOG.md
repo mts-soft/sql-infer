@@ -1,4 +1,4 @@
-# Unreleased
+# 0.13.0
 
 ## Breaking Changes
 - `time` no longer incorrectly generates a `timetz` internally.
@@ -11,7 +11,7 @@
 - `schema lint` command will go through all user defined tables and point out potential problems.
     - Currently this only checks for `timestamp without time zone`, `time with time zone` and clashes between column and table names. `timestamp without time zone` may be necessary but is a product of forgetfulness most times. Use of `time with time zone` is actively discouraged by PostgreSQL docs and a column having the same name as the table causes ambiguity at best.  
 - `sql-alchemy`, `sql-alchemy-async`, `sql-alchemy-v2` code generators now produce `Any` for unknown types.
-- Support for enums have been added across the board.
+- Support for enums have been added, `sql-alchemy` code generation options produce enums as `typing.Literal`s
 
 # 0.12.0
 
