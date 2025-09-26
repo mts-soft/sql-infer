@@ -21,10 +21,10 @@ impl UseInformationSchema for TextLength {
         if includes_cast(column) != Some(true) {
             return;
         }
-        if let SqlType::Char { length } | SqlType::VarChar { length } = &mut item.sql_type {
-            if let Some(character_maximum_length) = schema.character_maximum_length {
-                *length = Some(character_maximum_length as u32)
-            }
+        if let SqlType::Char { length } | SqlType::VarChar { length } = &mut item.sql_type
+            && let Some(character_maximum_length) = schema.character_maximum_length
+        {
+            *length = Some(character_maximum_length as u32)
         }
     }
 }
@@ -49,14 +49,12 @@ impl UseInformationSchema for DecimalPrecision {
             precision,
             precision_radix,
         } = &mut item.sql_type
-        {
-            if let Some((numeric_precision, numeric_precision_radix)) =
+            && let Some((numeric_precision, numeric_precision_radix)) =
                 schema.numeric_precision.zip(schema.numeric_precision_radix)
-            {
-                *precision = Some(numeric_precision as u32);
-                *precision_radix = Some(numeric_precision_radix as u32);
-            };
-        }
+        {
+            *precision = Some(numeric_precision as u32);
+            *precision_radix = Some(numeric_precision_radix as u32);
+        };
     }
 }
 
