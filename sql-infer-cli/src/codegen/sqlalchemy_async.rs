@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, error::Error};
 
 use sql_infer_core::inference::{Nullability, QueryItem, SqlType};
 
-use crate::codegen::QueryDefinition;
+use crate::codegen::{QueryDefinition, py_utils::escape_string};
 
 use super::CodeGen;
 
@@ -53,7 +53,7 @@ fn to_py_input_type(item: &QueryItem) -> String {
             return format!(
                 "Literal[{}]",
                 tags.iter()
-                    .map(|tag| format!("{tag:?}"))
+                    .map(|tag| format!("{:?}", escape_string(tag)))
                     .collect::<Vec<_>>()
                     .join(", ")
             );
