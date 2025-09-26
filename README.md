@@ -26,7 +26,7 @@ We were originally using SQL Alchemy ORM within the organization as minimal rese
 ```toml
 path = ["<path1>", "<path2>", "<path3>"] # Keep in mind sql-infer does not recurse by default
 target = "<path/to/output/file>"
-mode = "json" # "sql-alchemy" and "sql-alchemy-async" are alternative options
+mode = "json" # "sql-alchemy-v2" is the alternative option for generating sync & async sqlalchemy code.
 
 [experimental-features]
 infer-nullability = true
@@ -50,7 +50,7 @@ project
 Upon running `sql-infer generate` sql-infer will look for `sql-infer.toml` within the current directory, look for the `DATABASE_URL` environment variable and attempt to connect to the database. Keep in mind that there is very minimal sanitization being done in `sql-infer` and it should strictly be used with trusted input and in a trusted environment.
 
 ## Example sql-infer usage
-It is recommended to have sql-infer output be formatted if `sql-alchemy` or `sql-alchemy-async` is being used. If the `json` output format is being used, you are probably already making your own code generation on top if it.
+It is recommended to have sql-infer output be formatted by a formatter such as ruff or black if `sql-alchemy-v2` is being used. If the `json` output format is being used, you are probably already making your own code generation on top if it.
 
 Imagine a file named `example.sql` with the below content
 ```sql
@@ -102,7 +102,7 @@ Supported features:
 
 - All
 
-### `"sql-alchemy"`
+### `"sql-alchemy"` (DEPRECATED)
 
 Generate type-safe SQL Alchemy Core code using the provided typing information.
 
@@ -110,7 +110,7 @@ Supported features:
 
 - Infer nullability
 
-### `"sql-alchemy-async"`
+### `"sql-alchemy-async"` (DEPRECATED)
 
 Generate type-safe async SQL Alchemy Core code using the provided typing information.
 
@@ -118,6 +118,21 @@ Supported features:
 
 - Infer nullability
 
+### `"sql-alchemy-v2"`
+
+Generate type-safe SQL Alchemy Core code using the provided typing information.
+
+Supported features:
+
+- Infer nullability
+
+Example config:
+```toml
+[mode.sql-alchemy-v2]
+async = false # or true
+type-gen = "python" # or "pydantic"
+argument-mode = "positional" # or "keyword"
+```
 
 ## Experimental Features
 
