@@ -14,3 +14,4 @@ In no particular order:
 - [ ] Remove serde dependency on sql-infer-core
 - [ ] `sql-infer upgrade` command to replace deprecated options with their new equivalents  
 - [ ] Enum support
+- [ ] UUID support
