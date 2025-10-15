@@ -3,7 +3,7 @@ pub mod nullability;
 
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgTypeInfo, PgTypeKind};
-use sqlx::{Either, Pool, Postgres, Statement, TypeInfo};
+use sqlx::{Either, Pool, Postgres, Statement, TypeInfo, query};
 use sqlx::{Executor, query_as};
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -289,6 +289,10 @@ pub struct InformationSchema {
     pub column_default: Option<String>,
 }
 
+pub struct TableSchema {
+    pub columns: HashMap<String, InformationSchema>,
+}
+
 async fn get_information_schema(
     pool: &Pool<Postgres>,
     table: &str,
@@ -466,4 +470,28 @@ pub(crate) async fn check_statement(
         input: input_types.into_boxed_slice(),
         output: result_types.into_boxed_slice(),
     })
+}
+
+pub async fn get_table_columns(
+    pool: &Pool<Postgres>,
+    schema: &str,
+    table: &str,
+) -> Result<Box<[String]>, Box<dyn Error>> {
+    let records = query!(
+        "select
+    column_name
+from
+    INFORMATION_SCHEMA.COLUMNS
+where
+    table_name = $1 and table_schema = $2;",
+        table,
+        schema
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(records
+        .into_iter()
+        .flat_map(|record| record.column_name)
+        .collect())
 }

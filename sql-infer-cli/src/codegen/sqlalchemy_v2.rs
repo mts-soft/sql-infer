@@ -39,7 +39,8 @@ fn to_py_input_type(item: &QueryItem) -> String {
         | SqlType::Serial
         | SqlType::BigSerial => "int",
         SqlType::Decimal { .. } => "Decimal",
-        SqlType::Timestamp { .. } => "datetime",
+        SqlType::Timestamp { tz: false } => "NaiveDatetime",
+        SqlType::Timestamp { tz: true } => "AwareDatetime",
         SqlType::Date => "date",
         SqlType::Time { .. } => "time",
         SqlType::Char { .. }

@@ -15,3 +15,5 @@ In no particular order:
 - [ ] `sql-infer upgrade` command to replace deprecated options with their new equivalents  
 - [x] Enum support
 - [ ] UUID support
+- [ ] Support for nullability inference when selecting from views
+- [x] Take schemas into account

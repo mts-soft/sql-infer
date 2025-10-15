@@ -63,6 +63,7 @@ impl Schema {
             .await?;
         let tables = query!(
             r#"SELECT
+    table_schema,
     table_name
 FROM
     information_schema.tables
@@ -73,16 +74,12 @@ WHERE
         .await?;
         let tables: Vec<_> = tables
             .into_iter()
-            .flat_map(|record| record.table_name)
+            .flat_map(|record| record.table_schema.zip(record.table_name))
             .collect();
 
         let mut table_schemas = vec![];
-        for table in tables {
-            // Guaranteed to be valid table name, escape double quotes with double quotes as per PostgreSQL documentation.
-            let table = table.replace("\"", "\"\"");
-            let types = sql_infer
-                .infer_types(&pool, &format!("select * from {table}"))
-                .await?;
+        for (schema, table) in tables {
+            let types = sql_infer.infer_table_types(&pool, &schema, &table).await?;
             let mut columns = vec![];
             for col in types.output {
                 columns.push(ColumnSchema {

@@ -1,3 +1,9 @@
+# Unreleased
+
+## Fixed
+- `sqlalchemyv2` with `pydantic` type generation now also generates Naive & Aware datetimes for input types
+- `schema display` now accesses table info via information schema rather than generating a `select * from table` query 
+
 # 0.13.0
 
 ## Breaking Changes

@@ -48,4 +48,27 @@ impl SqlInfer {
     ) -> Result<QueryTypes, Box<dyn Error>> {
         inference::check_statement(pool, query, &self.passes).await
     }
+
+    pub async fn infer_table_types(
+        &self,
+        pool: &sqlx::Pool<sqlx::Postgres>,
+        schema: &str,
+        table: &str,
+    ) -> Result<QueryTypes, Box<dyn Error>> {
+        let columns = inference::get_table_columns(pool, schema, table).await?;
+        let query = format!(
+            "select {} from {}",
+            columns
+                .into_iter()
+                .map(|col| escape_ident(&col))
+                .collect::<Vec<_>>()
+                .join(","),
+            escape_ident(table),
+        );
+        self.infer_types(pool, &query).await
+    }
+}
+
+pub fn escape_ident(ident: &str) -> String {
+    format!("\"{}\"", ident.replace("\"", "\"\""))
 }
