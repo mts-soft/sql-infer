@@ -379,10 +379,17 @@ impl Table {
     }
 }
 
+fn unescape(name: &str) -> String {
+    if !name.starts_with("\"") || !name.ends_with("\"") {
+        return name.to_string();
+    }
+    name[1..name.len() - 1].replace("\"\"", "\"")
+}
+
 fn relation_tables(table_factor: &TableFactor) -> Arc<Table> {
     match table_factor {
         TableFactor::Table { name, alias, .. } => {
-            let table = Table::new(name);
+            let table = Table::new(unescape(&name.to_string()));
             match alias {
                 Some(alias) => Table::alias(alias, table),
                 None => table,
@@ -541,7 +548,9 @@ pub fn find_tables(statement: &Statement) -> Vec<Arc<Table>> {
         },
         Statement::Insert(insert) => {
             let table = match &insert.table {
-                TableObject::TableName(object_name) => Table::new(object_name),
+                TableObject::TableName(object_name) => {
+                    Table::new(unescape(&object_name.to_string()))
+                }
                 _ => Table::unknown(insert.table.to_string()),
             };
             vec![table]
@@ -576,7 +585,9 @@ pub fn find_fields(statement: &Statement) -> Result<HashMap<String, Column>, Par
         }
         Statement::Insert(insert) => {
             let table = match &insert.table {
-                TableObject::TableName(object_name) => Table::new(object_name),
+                TableObject::TableName(object_name) => {
+                    Table::new(unescape(&object_name.to_string()))
+                }
                 TableObject::TableFunction(_) => {
                     return Err(ParserError::UnsupportedQueryElement {
                         name: insert.table.to_string(),
