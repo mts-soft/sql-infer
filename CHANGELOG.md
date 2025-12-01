@@ -1,8 +1,12 @@
 # Unreleased
 
 ## Fixed
-- `sqlalchemyv2` with `pydantic` type generation now also generates Naive & Aware datetimes for input types
-- `schema display` now accesses table info via information schema rather than generating a `select * from table` query 
+- `sqlalchemyv2` with `pydantic` type generation now also generates Naive & Aware datetimes for input types.
+- `schema display` now accesses table info via information schema rather than generating a `select * from table` query.
+- Quoted table names no longer break inference.
+
+## Breaking Changes
+- Decimal display no longer has any spaces
 
 # 0.13.0
 

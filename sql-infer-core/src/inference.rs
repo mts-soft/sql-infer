@@ -139,7 +139,7 @@ impl Display for SqlType {
                 precision_radix,
             } => match precision.zip(precision_radix.as_ref()) {
                 Some((precision, precision_radix)) => {
-                    write!(f, "decimal({precision}, {precision_radix})")
+                    write!(f, "decimal({precision},{precision_radix})")
                 }
                 None => write!(f, "decimal"),
             },
