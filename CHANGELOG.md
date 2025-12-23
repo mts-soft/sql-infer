@@ -1,8 +1,12 @@
-# Unreleased
+# 0.14.1
 
 ## Fixed
 - `python` codegen no longer uses `pydantic` type generation
 - `Literal[...]` types can now be optional 
+
+## Breaking Changes
+- `python` codegen no longer uses `pydantic` type generation, migrating to `pydantic` should be an easy fix.
+- `Literal[...]` types can now be optional, this can affect type-checkers.  
 
 ## Internal changes
 - Update `sqlparser` to `0.60.0`
