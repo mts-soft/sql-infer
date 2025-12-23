@@ -19,8 +19,8 @@ Json = (
     | bool
     | int
     | float
-    | dict[str, ForwardRef("Json")]
-    | list[ForwardRef("Json")]
+    | dict[str, Json]
+    | list[Json]
     | None
 )
 

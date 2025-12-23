@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use sqlparser::ast::{
     BinaryOperator, DataType, DollarQuotedString, Expr, FromTable, Function, JoinOperator,
-    SelectItem, SetExpr, Statement, TableFactor, TableObject, TableWithJoins, ValueWithSpan,
+    SelectItem, SetExpr, Statement, TableFactor, TableObject, TableWithJoins, Update,
+    ValueWithSpan,
 };
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
@@ -417,7 +418,7 @@ fn get_join(table: &TableWithJoins) -> Arc<Table> {
             JoinOperator::LeftOuter(_) | JoinOperator::Left(_) => (false, true),
             JoinOperator::RightOuter(_) | JoinOperator::Right(_) => (true, false),
             JoinOperator::FullOuter(_) => (true, true),
-            JoinOperator::CrossJoin => (true, true),
+            JoinOperator::CrossJoin(_) => (true, true),
             JoinOperator::Semi(_)
             | JoinOperator::LeftSemi(_)
             | JoinOperator::RightSemi(_)
@@ -555,7 +556,7 @@ pub fn find_tables(statement: &Statement) -> Vec<Arc<Table>> {
             };
             vec![table]
         }
-        Statement::Update { table, .. } => vec![get_join(table)],
+        Statement::Update(Update { table, .. }) => vec![get_join(table)],
         Statement::Delete(delete) => match &delete.from {
             FromTable::WithoutKeyword(tables) | FromTable::WithFromKeyword(tables) => {
                 identify_tables(tables)
@@ -599,9 +600,9 @@ pub fn find_fields(statement: &Statement) -> Result<HashMap<String, Column>, Par
                 None => HashMap::new(),
             })
         }
-        Statement::Update {
+        Statement::Update(Update {
             table, returning, ..
-        } => {
+        }) => {
             let table = get_join(table);
             Ok(match &returning {
                 Some(returning) => find_fields_in_items(returning, &[table]),

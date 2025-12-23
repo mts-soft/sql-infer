@@ -6,7 +6,7 @@ use sqlx::postgres::{PgTypeInfo, PgTypeKind};
 use sqlx::{Either, Pool, Postgres, Statement, TypeInfo, query};
 use sqlx::{Executor, query_as};
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::sync::Arc;
 use std::{error::Error, fmt};
@@ -43,14 +43,16 @@ pub struct QueryItem {
 #[derive(Debug, Clone)]
 pub enum CheckerError {
     UnrecognizedType { sql_type: String },
+    RepeatingParameterName { name: String },
 }
 
 impl fmt::Display for CheckerError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            CheckerError::UnrecognizedType { sql_type } => {
+            Self::UnrecognizedType { sql_type } => {
                 write!(f, "Unrecognized SQL Type {sql_type}")
             }
+            Self::RepeatingParameterName { name } => write!(f, "repeating parameter name {name}"),
         }
     }
 }
@@ -440,7 +442,13 @@ pub(crate) async fn check_statement(
     use sqlx::Column;
     let prepared = pool.prepare(query).await?;
     let mut result_types = Vec::with_capacity(prepared.columns().len());
+    let mut names = HashSet::new();
     for column in prepared.columns() {
+        if !names.insert(column.name()) {
+            Err(CheckerError::RepeatingParameterName {
+                name: column.name().to_string(),
+            })?;
+        }
         result_types.push(QueryItem {
             name: column.name().to_string(),
             sql_type: SqlType::from_pg_type_info(column.type_info())?,

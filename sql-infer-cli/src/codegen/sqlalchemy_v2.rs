@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, error::Error};
+use std::{borrow::Cow, collections::BTreeMap, error::Error};
 
 use serde::{Deserialize, Serialize};
 use sql_infer_core::inference::{Nullability, QueryItem, SqlType};
@@ -30,83 +30,75 @@ fn to_pascal(mixed_case_name: &str) -> String {
 }
 
 fn to_py_input_type(item: &QueryItem) -> String {
-    let py_type = match &item.sql_type {
-        SqlType::Bool => "bool",
+    let py_type: Cow<'_, str> = match &item.sql_type {
+        SqlType::Bool => Cow::Borrowed("bool"),
         SqlType::Int2
         | SqlType::Int4
         | SqlType::Int8
         | SqlType::SmallSerial
         | SqlType::Serial
-        | SqlType::BigSerial => "int",
-        SqlType::Decimal { .. } => "Decimal",
-        SqlType::Timestamp { tz: false } => "NaiveDatetime",
-        SqlType::Timestamp { tz: true } => "AwareDatetime",
-        SqlType::Date => "date",
-        SqlType::Time { .. } => "time",
+        | SqlType::BigSerial => Cow::Borrowed("int"),
+        SqlType::Decimal { .. } => Cow::Borrowed("Decimal"),
+        SqlType::Timestamp { .. } => Cow::Borrowed("datetime"),
+        SqlType::Date => Cow::Borrowed("date"),
+        SqlType::Time { .. } => Cow::Borrowed("time"),
         SqlType::Char { .. }
         | SqlType::VarChar { .. }
         | SqlType::Text
         | SqlType::Json
-        | SqlType::Jsonb => "str",
-        SqlType::Float4 | SqlType::Float8 => "float",
-        SqlType::Interval => "timedelta",
-        SqlType::Bit { .. } | SqlType::VarBit { .. } => "str",
-        SqlType::Enum { tags, .. } => {
-            return format!(
-                "Literal[{}]",
-                tags.iter()
-                    .map(|tag| format!("{:?}", escape_string(tag)))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
-        }
-        SqlType::Unknown => "Any",
-    }
-    .to_owned();
+        | SqlType::Jsonb => Cow::Borrowed("str"),
+        SqlType::Float4 | SqlType::Float8 => Cow::Borrowed("float"),
+        SqlType::Interval => Cow::Borrowed("timedelta"),
+        SqlType::Bit { .. } | SqlType::VarBit { .. } => Cow::Borrowed("str"),
+        SqlType::Enum { tags, .. } => Cow::Owned(format!(
+            "Literal[{}]",
+            tags.iter()
+                .map(|tag| format!("{:?}", escape_string(tag)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+        SqlType::Unknown => Cow::Borrowed("Any"),
+    };
     match item.nullable {
         Nullability::True | Nullability::Unknown => format!("{py_type} | None"),
-        Nullability::False => py_type,
+        Nullability::False => py_type.to_string(),
     }
 }
 
 fn to_pydantic_input_type(item: &QueryItem) -> String {
-    let py_type = match &item.sql_type {
-        SqlType::Bool => "bool",
+    let py_type: Cow<'_, str> = match &item.sql_type {
+        SqlType::Bool => Cow::Borrowed("bool"),
         SqlType::Int2
         | SqlType::Int4
         | SqlType::Int8
         | SqlType::SmallSerial
         | SqlType::Serial
-        | SqlType::BigSerial => "int",
-        SqlType::Decimal { .. } => "Decimal",
-        SqlType::Timestamp { tz: false } => "NaiveDatetime",
-        SqlType::Timestamp { tz: true } => "AwareDatetime",
-        SqlType::Date => "date",
-        SqlType::Time { .. } => "time",
+        | SqlType::BigSerial => Cow::Borrowed("int"),
+        SqlType::Decimal { .. } => Cow::Borrowed("Decimal"),
+        SqlType::Timestamp { tz: false } => Cow::Borrowed("NaiveDatetime"),
+        SqlType::Timestamp { tz: true } => Cow::Borrowed("AwareDatetime"),
+        SqlType::Date => Cow::Borrowed("date"),
+        SqlType::Time { .. } => Cow::Borrowed("time"),
         SqlType::Char { .. }
         | SqlType::VarChar { .. }
         | SqlType::Text
         | SqlType::Json
-        | SqlType::Jsonb => "str",
-
-        SqlType::Float4 | SqlType::Float8 => "float",
-        SqlType::Interval => "timedelta",
-        SqlType::Bit { .. } | SqlType::VarBit { .. } => "str",
-        SqlType::Enum { tags, .. } => {
-            return format!(
-                "Literal[{}]",
-                tags.iter()
-                    .map(|tag| format!("{:?}", escape_string(tag)))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
-        }
-        SqlType::Unknown => "Any",
-    }
-    .to_owned();
+        | SqlType::Jsonb => Cow::Borrowed("str"),
+        SqlType::Float4 | SqlType::Float8 => Cow::Borrowed("float"),
+        SqlType::Interval => Cow::Borrowed("timedelta"),
+        SqlType::Bit { .. } | SqlType::VarBit { .. } => Cow::Borrowed("str"),
+        SqlType::Enum { tags, .. } => Cow::Owned(format!(
+            "Literal[{}]",
+            tags.iter()
+                .map(|tag| format!("{:?}", escape_string(tag)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+        SqlType::Unknown => Cow::Borrowed("Any"),
+    };
     match item.nullable {
         Nullability::True | Nullability::Unknown => format!("{py_type} | None"),
-        Nullability::False => py_type,
+        Nullability::False => py_type.to_string(),
     }
 }
 
@@ -125,7 +117,7 @@ fn to_py_output_type(item: &QueryItem) -> String {
 fn to_pydantic_output_type(item: &QueryItem) -> String {
     let py_type = match item.sql_type {
         SqlType::Json | SqlType::Jsonb => "Json",
-        _ => return to_py_input_type(item),
+        _ => return to_pydantic_input_type(item),
     }
     .to_owned();
     match item.nullable {
