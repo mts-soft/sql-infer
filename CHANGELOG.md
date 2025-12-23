@@ -1,3 +1,8 @@
+# 0.14.2
+
+## Fixed
+- Fix JSON type ending up `Unknown` for pyright. 
+
 # 0.14.1
 
 ## Fixed
