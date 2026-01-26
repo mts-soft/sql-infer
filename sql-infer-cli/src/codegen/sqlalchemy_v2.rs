@@ -29,8 +29,8 @@ fn to_pascal(mixed_case_name: &str) -> String {
     words.join("")
 }
 
-fn to_py_input_type(item: &QueryItem) -> String {
-    let py_type: Cow<'_, str> = match &item.sql_type {
+fn to_py_input_type(sql_type: &SqlType, nullable: Nullability) -> String {
+    let py_type: Cow<'_, str> = match sql_type {
         SqlType::Bool => Cow::Borrowed("bool"),
         SqlType::Int2
         | SqlType::Int4
@@ -58,15 +58,19 @@ fn to_py_input_type(item: &QueryItem) -> String {
                 .join(", ")
         )),
         SqlType::Unknown => Cow::Borrowed("Any"),
+        SqlType::Array(inner_type) => Cow::Owned(format!(
+            "list[{}]",
+            to_py_input_type(inner_type, Nullability::True)
+        )),
     };
-    match item.nullable {
+    match nullable {
         Nullability::True | Nullability::Unknown => format!("{py_type} | None"),
         Nullability::False => py_type.to_string(),
     }
 }
 
-fn to_pydantic_input_type(item: &QueryItem) -> String {
-    let py_type: Cow<'_, str> = match &item.sql_type {
+fn to_pydantic_input_type(sql_type: &SqlType, nullable: Nullability) -> String {
+    let py_type: Cow<'_, str> = match &sql_type {
         SqlType::Bool => Cow::Borrowed("bool"),
         SqlType::Int2
         | SqlType::Int4
@@ -95,8 +99,12 @@ fn to_pydantic_input_type(item: &QueryItem) -> String {
                 .join(", ")
         )),
         SqlType::Unknown => Cow::Borrowed("Any"),
+        SqlType::Array(inner_type) => Cow::Owned(format!(
+            "list[{}]",
+            to_py_input_type(inner_type, Nullability::True)
+        )),
     };
-    match item.nullable {
+    match nullable {
         Nullability::True | Nullability::Unknown => format!("{py_type} | None"),
         Nullability::False => py_type.to_string(),
     }
@@ -105,7 +113,7 @@ fn to_pydantic_input_type(item: &QueryItem) -> String {
 fn to_py_output_type(item: &QueryItem) -> String {
     let py_type = match item.sql_type {
         SqlType::Json | SqlType::Jsonb => "Json",
-        _ => return to_py_input_type(item),
+        _ => return to_py_input_type(&item.sql_type, item.nullable),
     }
     .to_owned();
     match item.nullable {
@@ -117,7 +125,7 @@ fn to_py_output_type(item: &QueryItem) -> String {
 fn to_pydantic_output_type(item: &QueryItem) -> String {
     let py_type = match item.sql_type {
         SqlType::Json | SqlType::Jsonb => "Json",
-        _ => return to_pydantic_input_type(item),
+        _ => return to_pydantic_input_type(&item.sql_type, item.nullable),
     }
     .to_owned();
     match item.nullable {
@@ -169,8 +177,8 @@ impl SqlAlchemyV2CodeGen {
 
     fn to_input_type(&self, item: &QueryItem) -> String {
         match self.type_gen {
-            TypeGen::Python => to_py_input_type(item),
-            TypeGen::Pydantic => to_pydantic_input_type(item),
+            TypeGen::Python => to_py_input_type(&item.sql_type, item.nullable),
+            TypeGen::Pydantic => to_pydantic_input_type(&item.sql_type, item.nullable),
         }
     }
 
@@ -252,7 +260,7 @@ impl CodeGen for SqlAlchemyV2CodeGen {
             false => include_str!("./sqlalchemy/template.txt").to_string(),
         };
         if self.type_gen == TypeGen::Pydantic {
-            code += "\nfrom pydantic import AwareDatetime, NaiveDatetime"
+            code += "\nfrom pydantic import AwareDatetime, NaiveDatetime\n"
         }
         for (file_name, query) in &self.queries {
             let func = self.query_to_sql_alchemy(file_name, query)?;

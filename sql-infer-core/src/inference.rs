@@ -122,6 +122,8 @@ pub enum SqlType {
         name: String,
         tags: Arc<[String]>,
     },
+    // Array
+    Array(Box<SqlType>),
     // Unknown types
     Unknown,
 }
@@ -190,6 +192,7 @@ impl Display for SqlType {
             } => write!(f, "varbit({length})"),
             SqlType::VarBit { length: None } => write!(f, "varbit"),
             SqlType::Unknown => write!(f, "unknown"),
+            SqlType::Array(inner) => write!(f, "[{inner}; N]"),
             SqlType::Enum { name, tags } => write!(f, "{name}: {}", tags.join(", ")),
         }
     }
@@ -244,6 +247,9 @@ impl SqlType {
                 name: type_info.name().to_string(),
                 tags: items.clone(),
             },
+            PgTypeKind::Array(inner) => {
+                SqlType::Array(Box::new(SqlType::from_pg_type_info(inner)?))
+            }
             _ => SqlType::from_str(type_info.name())?,
         })
     }

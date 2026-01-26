@@ -1,3 +1,11 @@
+# Unreleased
+
+## Added
+- Support for array types 
+
+## Breaking Changes
+- Deleted `sqlalchemy` and `sqlalchemy-async` modes as they were buggy, provided additional maintenance burden and are completely superceded by `sqlalchemy-v2`.
+
 # 0.14.2
 
 ## Fixed

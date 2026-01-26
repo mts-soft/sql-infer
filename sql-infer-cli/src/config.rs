@@ -50,8 +50,6 @@ impl Features {
 #[serde(rename_all = "kebab-case")]
 pub enum CodeGenerator {
     Json,
-    SqlAlchemy,
-    SqlAlchemyAsync,
     #[serde(rename_all = "kebab-case")]
     SqlAlchemyV2 {
         #[serde(default = "bool::default")]

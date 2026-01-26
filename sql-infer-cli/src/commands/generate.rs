@@ -18,10 +18,7 @@ use sql_infer_core::{
 use sqlx::postgres::PgPoolOptions;
 
 use crate::{
-    codegen::{
-        CodeGen, QueryDefinition, json::JsonCodeGen, sqlalchemy::SqlAlchemyCodeGen,
-        sqlalchemy_async::SqlAlchemyAsyncCodeGen, sqlalchemy_v2::SqlAlchemyV2CodeGen,
-    },
+    codegen::{CodeGen, QueryDefinition, json::JsonCodeGen, sqlalchemy_v2::SqlAlchemyV2CodeGen},
     config::{CodeGenerator, SqlInferConfig, TomlConfig, db_url},
     utils::{ParametrizedQuery, parse_into_postgres},
 };
@@ -60,8 +57,6 @@ impl Generate {
 
         let mut codegen: Box<dyn CodeGen> = match config.mode {
             CodeGenerator::Json => Box::new(JsonCodeGen::default()),
-            CodeGenerator::SqlAlchemy => Box::new(SqlAlchemyCodeGen::default()),
-            CodeGenerator::SqlAlchemyAsync => Box::new(SqlAlchemyAsyncCodeGen::default()),
             CodeGenerator::SqlAlchemyV2 {
                 r#async,
                 argument_mode,

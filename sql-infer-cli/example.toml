@@ -1,0 +1,11 @@
+path = []
+target = "./app/queries.py"
+
+[mode.sql-alchemy-v2]
+async = true
+type-gen = "pydantic"
+argument-mode = "keyword"
+
+[experimental-features]
+infer-nullability = true
+precise-output-datatypes = true
