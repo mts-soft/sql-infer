@@ -102,22 +102,6 @@ Supported features:
 
 - All
 
-### `"sql-alchemy"` (DEPRECATED)
-
-Generate type-safe SQL Alchemy Core code using the provided typing information.
-
-Supported features:
-
-- Infer nullability
-
-### `"sql-alchemy-async"` (DEPRECATED)
-
-Generate type-safe async SQL Alchemy Core code using the provided typing information.
-
-Supported features:
-
-- Infer nullability
-
 ### `"sql-alchemy-v2"`
 
 Generate type-safe SQL Alchemy Core code using the provided typing information.
