@@ -392,7 +392,7 @@ fn relation_tables(table_factor: &TableFactor) -> Arc<Table> {
         TableFactor::Table { name, alias, .. } => {
             let table = Table::new(unescape(&name.to_string()));
             match alias {
-                Some(alias) => Table::alias(alias, table),
+                Some(alias) => Table::alias(alias.name.to_string(), table),
                 None => table,
             }
         }
@@ -402,7 +402,7 @@ fn relation_tables(table_factor: &TableFactor) -> Arc<Table> {
         } => {
             let table = get_join(table_with_joins);
             match alias {
-                Some(alias) => Table::alias(alias, table),
+                Some(alias) => Table::alias(alias.name.to_string(), table),
                 None => table,
             }
         }

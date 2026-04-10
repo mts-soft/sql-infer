@@ -193,6 +193,7 @@ impl SqlAlchemyV2CodeGen {
         &self,
         fn_name: &str,
         query_fn: &QueryDefinition,
+        is_async: bool,
     ) -> Result<String, Box<dyn Error>> {
         let mut params = vec![self.conn_param().to_string()];
         if !query_fn.inputs.is_empty() && self.argument_mode == ArgumentMode::Keyword {
@@ -226,17 +227,26 @@ impl SqlAlchemyV2CodeGen {
         };
 
         let in_types = params.join(", ");
-        let function_signature = format!("async def {fn_name}({in_types}) -> {out_types}:");
+        let function_signature = match is_async {
+            true => format!("async def {fn_name}({in_types}) -> {out_types}:"),
+            false => format!("def {fn_name}({in_types}) -> {out_types}:"),
+        };
 
         let bind_text = match binds.len() {
             0 => "".to_string(),
             _ => format!("{{{}}}", binds.join(", ")),
         };
 
-        let mut function_content = format!(
-            "    result = await conn.execute(text(\"\"\"{}\"\"\"), {})\n",
-            query_fn.query, bind_text
-        );
+        let mut function_content = match is_async {
+            true => format!(
+                "    result = await conn.execute(text(\"\"\"{}\"\"\"), {})\n",
+                query_fn.query, bind_text
+            ),
+            false => format!(
+                "    result = conn.execute(text(\"\"\"{}\"\"\"), {})\n",
+                query_fn.query, bind_text
+            ),
+        };
         if !outs.is_empty() {
             function_content.push_str(&format!(
                 "    return DbOutput({class_name}(*row) for row in result) # type: ignore\n"
@@ -263,7 +273,7 @@ impl CodeGen for SqlAlchemyV2CodeGen {
             code += "\nfrom pydantic import AwareDatetime, NaiveDatetime\n"
         }
         for (file_name, query) in &self.queries {
-            let func = self.query_to_sql_alchemy(file_name, query)?;
+            let func = self.query_to_sql_alchemy(file_name, query, self.r#async)?;
             code.push_str(&func);
             code.push('\n');
         }
