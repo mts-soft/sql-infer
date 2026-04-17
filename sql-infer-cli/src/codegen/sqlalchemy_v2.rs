@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::BTreeMap, error::Error};
+use std::{borrow::Cow, collections::BTreeMap, error::Error, fmt::Display};
 
 use serde::{Deserialize, Serialize};
 use sql_infer_core::inference::{Nullability, QueryItem, SqlType};
@@ -29,7 +29,67 @@ fn to_pascal(mixed_case_name: &str) -> String {
     words.join("")
 }
 
-fn to_py_input_type(sql_type: &SqlType, nullable: Nullability) -> String {
+trait TypeBounds: Display {
+    fn bounds(&mut self, r#type: &str) -> String;
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct PyTypeVar(usize);
+
+impl Display for PyTypeVar {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "T{}", self.0)
+    }
+}
+struct ParamTypeBounds {
+    bounds: Vec<String>,
+}
+
+impl Display for ParamTypeBounds {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.bounds.is_empty() {
+            return Ok(());
+        }
+        write!(
+            f,
+            "[{}]",
+            self.bounds
+                .iter()
+                .enumerate()
+                .map(|(idx, ty)| format!("{}: {ty}", PyTypeVar(idx)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    }
+}
+
+impl TypeBounds for ParamTypeBounds {
+    fn bounds(&mut self, r#type: &str) -> String {
+        let idx = self.bounds.len();
+        self.bounds.push(r#type.to_string());
+        PyTypeVar(idx).to_string()
+    }
+}
+
+struct NoBounds;
+
+impl Display for NoBounds {
+    fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+}
+
+impl TypeBounds for NoBounds {
+    fn bounds(&mut self, r#type: &str) -> String {
+        r#type.to_string()
+    }
+}
+
+fn to_py_input_type(
+    sql_type: &SqlType,
+    nullable: Nullability,
+    bounds: &mut dyn TypeBounds,
+) -> String {
     let py_type: Cow<'_, str> = match sql_type {
         SqlType::Bool => Cow::Borrowed("bool"),
         SqlType::Int2
@@ -58,10 +118,11 @@ fn to_py_input_type(sql_type: &SqlType, nullable: Nullability) -> String {
                 .join(", ")
         )),
         SqlType::Unknown => Cow::Borrowed("Any"),
-        SqlType::Array(inner_type) => Cow::Owned(format!(
-            "list[{}]",
-            to_py_input_type(inner_type, Nullability::True)
-        )),
+        SqlType::Array(inner_type) => {
+            let inner = to_py_input_type(inner_type, Nullability::True, bounds);
+            let var = bounds.bounds(&inner);
+            Cow::Owned(format!("list[{var}]"))
+        }
     };
     match nullable {
         Nullability::True | Nullability::Unknown => format!("{py_type} | None"),
@@ -69,7 +130,11 @@ fn to_py_input_type(sql_type: &SqlType, nullable: Nullability) -> String {
     }
 }
 
-fn to_pydantic_input_type(sql_type: &SqlType, nullable: Nullability) -> String {
+fn to_pydantic_input_type(
+    sql_type: &SqlType,
+    nullable: Nullability,
+    bounds: &mut dyn TypeBounds,
+) -> String {
     let py_type: Cow<'_, str> = match &sql_type {
         SqlType::Bool => Cow::Borrowed("bool"),
         SqlType::Int2
@@ -99,10 +164,11 @@ fn to_pydantic_input_type(sql_type: &SqlType, nullable: Nullability) -> String {
                 .join(", ")
         )),
         SqlType::Unknown => Cow::Borrowed("Any"),
-        SqlType::Array(inner_type) => Cow::Owned(format!(
-            "list[{}]",
-            to_py_input_type(inner_type, Nullability::True)
-        )),
+        SqlType::Array(inner_type) => {
+            let inner = to_pydantic_input_type(inner_type, Nullability::True, bounds);
+            let var = bounds.bounds(&inner);
+            Cow::Owned(format!("list[{var}]"))
+        }
     };
     match nullable {
         Nullability::True | Nullability::Unknown => format!("{py_type} | None"),
@@ -113,7 +179,9 @@ fn to_pydantic_input_type(sql_type: &SqlType, nullable: Nullability) -> String {
 fn to_py_output_type(item: &QueryItem) -> String {
     let py_type = match item.sql_type {
         SqlType::Json | SqlType::Jsonb => "Json",
-        _ => return to_py_input_type(&item.sql_type, item.nullable),
+        _ => {
+            return to_py_input_type(&item.sql_type, item.nullable, &mut NoBounds);
+        }
     }
     .to_owned();
     match item.nullable {
@@ -125,7 +193,9 @@ fn to_py_output_type(item: &QueryItem) -> String {
 fn to_pydantic_output_type(item: &QueryItem) -> String {
     let py_type = match item.sql_type {
         SqlType::Json | SqlType::Jsonb => "Json",
-        _ => return to_pydantic_input_type(&item.sql_type, item.nullable),
+        _ => {
+            return to_pydantic_input_type(&item.sql_type, item.nullable, &mut NoBounds);
+        }
     }
     .to_owned();
     match item.nullable {
@@ -156,15 +226,22 @@ pub struct SqlAlchemyV2CodeGen {
     r#async: bool,
     argument_mode: ArgumentMode,
     type_gen: TypeGen,
+    generic_param_types: bool,
 }
 
 impl SqlAlchemyV2CodeGen {
-    pub fn new(r#async: bool, argument_mode: ArgumentMode, type_gen: TypeGen) -> Self {
+    pub fn new(
+        r#async: bool,
+        argument_mode: ArgumentMode,
+        type_gen: TypeGen,
+        generic_param_types: bool,
+    ) -> Self {
         Self {
             queries: Default::default(),
             r#async,
             argument_mode,
             type_gen,
+            generic_param_types,
         }
     }
 
@@ -175,10 +252,10 @@ impl SqlAlchemyV2CodeGen {
         }
     }
 
-    fn to_input_type(&self, item: &QueryItem) -> String {
+    fn to_input_type(&self, item: &QueryItem, bounds: &mut dyn TypeBounds) -> String {
         match self.type_gen {
-            TypeGen::Python => to_py_input_type(&item.sql_type, item.nullable),
-            TypeGen::Pydantic => to_pydantic_input_type(&item.sql_type, item.nullable),
+            TypeGen::Python => to_py_input_type(&item.sql_type, item.nullable, bounds),
+            TypeGen::Pydantic => to_pydantic_input_type(&item.sql_type, item.nullable, bounds),
         }
     }
 
@@ -201,12 +278,17 @@ impl SqlAlchemyV2CodeGen {
         }
         let mut binds = vec![];
 
+        let bounds: &mut dyn TypeBounds = if self.generic_param_types {
+            &mut ParamTypeBounds { bounds: vec![] }
+        } else {
+            &mut NoBounds {}
+        };
         for query_value in &query_fn.inputs {
             let param_name = &query_value.name;
             params.push(format!(
                 "{}: {}",
                 param_name,
-                self.to_input_type(query_value)
+                self.to_input_type(query_value, &mut *bounds)
             ));
             binds.push(format!("\"{param_name}\": {param_name}"));
         }
@@ -228,8 +310,8 @@ impl SqlAlchemyV2CodeGen {
 
         let in_types = params.join(", ");
         let function_signature = match is_async {
-            true => format!("async def {fn_name}({in_types}) -> {out_types}:"),
-            false => format!("def {fn_name}({in_types}) -> {out_types}:"),
+            true => format!("async def {fn_name}{bounds}({in_types}) -> {out_types}:"),
+            false => format!("def {fn_name}{bounds}({in_types}) -> {out_types}:"),
         };
 
         let bind_text = match binds.len() {

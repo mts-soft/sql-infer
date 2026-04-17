@@ -12,7 +12,12 @@ tracing = "0.1.41"
 tracing-subscriber = "0.3.22"
 toml = "0.9.2"
 
-sqlx = { version = "0.8.2", features = ["postgres", "runtime-tokio", "tls-native-tls", "time"] }
+sqlx = { version = "0.8.2", features = [
+    "postgres",
+    "runtime-tokio",
+    "tls-native-tls",
+    "time",
+] }
 serde_json = "1.0.141"
 regex = "1.11.1"
 dotenvy = "0.15.7"

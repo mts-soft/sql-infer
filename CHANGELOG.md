@@ -1,3 +1,9 @@
+# 0.16.0
+
+## Added
+
+- `generic-param-types` option in `sqlalchemy-v2` to support generating bounded type vars to accept a wider range of valid parameters.
+
 # 0.15.1
 
 ## Fixed

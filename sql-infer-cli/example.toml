@@ -5,6 +5,7 @@ target = "./app/queries.py"
 async = true
 type-gen = "pydantic"
 argument-mode = "keyword"
+generic-param-types = true
 
 [experimental-features]
 infer-nullability = true

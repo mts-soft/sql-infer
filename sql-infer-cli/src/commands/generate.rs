@@ -61,7 +61,13 @@ impl Generate {
                 r#async,
                 argument_mode,
                 type_gen,
-            } => Box::new(SqlAlchemyV2CodeGen::new(r#async, argument_mode, type_gen)),
+                generic_param_types,
+            } => Box::new(SqlAlchemyV2CodeGen::new(
+                r#async,
+                argument_mode,
+                type_gen,
+                generic_param_types,
+            )),
         };
 
         let pool = PgPoolOptions::new()

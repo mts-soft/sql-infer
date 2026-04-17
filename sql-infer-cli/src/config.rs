@@ -58,6 +58,8 @@ pub enum CodeGenerator {
         argument_mode: ArgumentMode,
         #[serde(default = "TypeGen::default")]
         type_gen: TypeGen,
+        #[serde(default = "bool::default")]
+        generic_param_types: bool,
     },
 }
 
