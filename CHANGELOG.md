@@ -1,3 +1,14 @@
+# 0.17.0
+
+## Added
+
+- Recognize `is [not] (null | true | false)` and `is [not] distinct from` patterns and generate not-null boolean types.
+
+## Internal
+
+- Upgrade all dependencies
+- Remove redundant dependencies
+
 # 0.16.0
 
 ## Added

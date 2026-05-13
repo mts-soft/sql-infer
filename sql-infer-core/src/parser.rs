@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use sqlparser::ast::{
     BinaryOperator, DataType, DollarQuotedString, Expr, FromTable, Function, JoinOperator,
-    SelectItem, SetExpr, Statement, TableFactor, TableObject, TableWithJoins, Update,
-    ValueWithSpan,
+    QuoteDelimitedString, SelectItem, SetExpr, Statement, TableFactor, TableObject, TableWithJoins,
+    Update, ValueWithSpan,
 };
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
@@ -428,7 +428,10 @@ fn get_join(table: &TableWithJoins) -> Arc<Table> {
             | JoinOperator::CrossApply
             | JoinOperator::OuterApply
             | JoinOperator::StraightJoin(_)
-            | JoinOperator::AsOf { .. } => return Table::unknown(join.to_string()),
+            | JoinOperator::AsOf { .. }
+            | JoinOperator::ArrayJoin
+            | JoinOperator::LeftArrayJoin
+            | JoinOperator::InnerArrayJoin => return Table::unknown(join.to_string()),
         };
         let right = relation_tables(&join.relation);
         left = Table::join((left_null, left), (right_null, right));
@@ -496,7 +499,14 @@ fn find_field_in_expr(expr: &Expr, tables: &[Arc<Table>]) -> Option<Column> {
                 | Value::TripleDoubleQuotedRawStringLiteral(_string)
                 | Value::NationalStringLiteral(_string)
                 | Value::HexStringLiteral(_string)
-                | Value::DoubleQuotedString(_string) => Some(Column::value(ValueType::String)),
+                | Value::DoubleQuotedString(_string)
+                | Value::QuoteDelimitedStringLiteral(QuoteDelimitedString {
+                    value: _string, ..
+                })
+                | Value::NationalQuoteDelimitedStringLiteral(QuoteDelimitedString {
+                    value: _string,
+                    ..
+                }) => Some(Column::value(ValueType::String)),
                 Value::Boolean(_boolean) => Some(Column::Value(ValueType::Boolean)),
                 Value::Null => Some(Column::Value(ValueType::Null)),
                 Value::Placeholder(_) => None,
@@ -505,6 +515,14 @@ fn find_field_in_expr(expr: &Expr, tables: &[Arc<Table>]) -> Option<Column> {
         Expr::Function(Function { name, .. }) if name.to_string().to_lowercase() == "count" => {
             Some(Column::Value(ValueType::Int))
         }
+        Expr::IsNull(_)
+        | Expr::IsNotNull(_)
+        | Expr::IsTrue(_)
+        | Expr::IsNotTrue(_)
+        | Expr::IsFalse(_)
+        | Expr::IsNotFalse(_)
+        | Expr::IsDistinctFrom(_, _)
+        | Expr::IsNotDistinctFrom(_, _) => Some(Column::Value(ValueType::Boolean)),
         _ => Some(Column::Unknown {
             sql: expr.to_string(),
         }),
@@ -589,7 +607,7 @@ pub fn find_fields(statement: &Statement) -> Result<HashMap<String, Column>, Par
                 TableObject::TableName(object_name) => {
                     Table::new(unescape(&object_name.to_string()))
                 }
-                TableObject::TableFunction(_) => {
+                TableObject::TableFunction(_) | TableObject::TableQuery(_) => {
                     return Err(ParserError::UnsupportedQueryElement {
                         name: insert.table.to_string(),
                     });
